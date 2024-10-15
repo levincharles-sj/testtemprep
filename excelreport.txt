@@ -1,0 +1,269 @@
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Map;
+
+public class ExcelMerger {
+    public static void main(String[] args) {
+        // Folder path where the Excel files are stored
+        String folderPath = "path_to_your_folder";
+        // Output file for the original report
+        String reportPath = "path_to_output_report.xlsx";
+        // Output file for the final merged report
+        String finalReportPath = "path_to_final_merged_report.xlsx";
+
+        try (Workbook reportWorkbook = new XSSFWorkbook()) {
+            File folder = new File(folderPath);
+            File[] listOfFiles = folder.listFiles((dir, name) -> name.endsWith(".xlsx"));
+
+            if (listOfFiles != null && listOfFiles.length > 0) {
+                // Use the first file as the base for the report
+                File firstFile = listOfFiles[0];
+                try (FileInputStream fis = new FileInputStream(firstFile)) {
+                    Workbook firstWorkbook = new XSSFWorkbook(fis);
+
+                    // Copy all sheets from the first workbook to the report workbook
+                    for (int i = 0; i < firstWorkbook.getNumberOfSheets(); i++) {
+                        Sheet sourceSheet = firstWorkbook.getSheetAt(i);
+                        Sheet reportSheet = reportWorkbook.createSheet(sourceSheet.getSheetName());
+                        copyWholeSheet(sourceSheet, reportSheet);
+                    }
+                }
+
+                // Iterate over the remaining files
+                for (int fileIndex = 1; fileIndex < listOfFiles.length; fileIndex++) {
+                    File file = listOfFiles[fileIndex];
+                    try (FileInputStream fis = new FileInputStream(file)) {
+                        Workbook workbook = new XSSFWorkbook(fis);
+
+                        // Iterate over sheets in the current workbook
+                        for (int i = 0; i < workbook.getNumberOfSheets(); i++) {
+                            Sheet sheet = workbook.getSheetAt(i);
+                            if (sheet == null) continue;
+
+                            // Get column indices of "Serial No", "Test Data", and "Date and Time"
+                            Map<String, Integer> columnIndices = getColumnIndices(sheet);
+                            if (columnIndices == null) continue; // Skip sheet if columns not found
+
+                            // Check if "Test Data" column has a merged header and set header row count accordingly
+                            int headerRowCount = getHeaderRowCount(sheet, columnIndices.get("Test Data"));
+
+                            // Get the corresponding report sheet
+                            Sheet reportSheet = reportWorkbook.getSheet(sheet.getSheetName());
+                            if (reportSheet == null) continue; // Skip if the sheet doesn't exist in the report
+
+                            // Copy data to the report sheet only if rows have data in the specific columns
+                            copySheetData(sheet, reportSheet, columnIndices, headerRowCount);
+                        }
+                    }
+                }
+
+                // Write the original report to the output file
+                try (FileOutputStream fos = new FileOutputStream(reportPath)) {
+                    reportWorkbook.write(fos);
+                }
+
+                System.out.println("Original report generated successfully.");
+
+                // Create a final merged report by making a copy of the original report
+                try (FileInputStream fis = new FileInputStream(reportPath);
+                     Workbook finalWorkbook = new XSSFWorkbook(fis)) {
+
+                    // Process the final workbook to remove empty rows and sheets
+                    processFinalMergedReport(finalWorkbook);
+
+                    // Write the final merged report to the output file
+                    try (FileOutputStream fos = new FileOutputStream(finalReportPath)) {
+                        finalWorkbook.write(fos);
+                    }
+
+                    System.out.println("Final merged report generated successfully.");
+                }
+
+            } else {
+                System.out.println("No Excel files found in the specified folder.");
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    // Function to dynamically get the column indices for "Serial No", "Test Data", and "Date and Time"
+    private static Map<String, Integer> getColumnIndices(Sheet sheet) {
+        Map<String, Integer> columnIndices = new HashMap<>();
+        Row firstRow = sheet.getRow(0);
+
+        if (firstRow != null) {
+            for (Cell cell : firstRow) {
+                String cellValue = cell.getStringCellValue().trim();
+                if (cellValue.equalsIgnoreCase("Serial No")) {
+                    columnIndices.put("Serial No", cell.getColumnIndex());
+                } else if (cellValue.equalsIgnoreCase("Test Data")) {
+                    columnIndices.put("Test Data", cell.getColumnIndex());
+                } else if (cellValue.equalsIgnoreCase("Date and Time")) {
+                    columnIndices.put("Date and Time", cell.getColumnIndex());
+                }
+            }
+        }
+
+        // Ensure all required columns are found
+        if (columnIndices.containsKey("Serial No") && columnIndices.containsKey("Test Data") && columnIndices.containsKey("Date and Time")) {
+            return columnIndices;
+        } else {
+            return null; // Return null if any required column is missing
+        }
+    }
+
+    // Function to detect header row count based on "Test Data" column
+    private static int getHeaderRowCount(Sheet sheet, int testDataColumnIndex) {
+        // Check if the "Test Data" column header is merged across two rows
+        for (int i = 0; i < sheet.getNumMergedRegions(); i++) {
+            CellRangeAddress mergedRegion = sheet.getMergedRegion(i);
+            if (mergedRegion.getFirstColumn() == testDataColumnIndex && mergedRegion.getFirstRow() == 0) {
+                // If "Test Data" column is merged across two rows, header row count is 2
+                return 2;
+            }
+        }
+
+        // Default to 1 header row if no merged cells are detected in the "Test Data" column
+        return 1;
+    }
+
+    // Function to copy the entire sheet from one workbook to another
+    private static void copyWholeSheet(Sheet sourceSheet, Sheet destinationSheet) {
+        for (int rowIndex = 0; rowIndex <= sourceSheet.getLastRowNum(); rowIndex++) {
+            Row sourceRow = sourceSheet.getRow(rowIndex);
+            if (sourceRow == null) continue;
+
+            Row destinationRow = destinationSheet.createRow(sourceRow.getRowNum());
+            for (Cell sourceCell : sourceRow) {
+                Cell destinationCell = destinationRow.createCell(sourceCell.getColumnIndex());
+
+                switch (sourceCell.getCellType()) {
+                    case STRING:
+                        destinationCell.setCellValue(sourceCell.getStringCellValue());
+                        break;
+                    case NUMERIC:
+                        if (DateUtil.isCellDateFormatted(sourceCell)) {
+                            destinationCell.setCellValue(sourceCell.getDateCellValue());
+                        } else {
+                            destinationCell.setCellValue(sourceCell.getNumericCellValue());
+                        }
+                        break;
+                    case BOOLEAN:
+                        destinationCell.setCellValue(sourceCell.getBooleanCellValue());
+                        break;
+                    case FORMULA:
+                        destinationCell.setCellFormula(sourceCell.getCellFormula());
+                        break;
+                    default:
+                        destinationCell.setCellValue(sourceCell.toString());
+                        break;
+                }
+            }
+        }
+    }
+
+    // Function to copy data from a source sheet to the report sheet
+    // Only rows with data in "Serial No", "Test Data", and "Date and Time" columns are copied
+    private static void copySheetData(Sheet sourceSheet, Sheet reportSheet, Map<String, Integer> columnIndices, int headerRowCount) {
+        int lastRowNumInReport = reportSheet.getLastRowNum();
+
+        for (int rowIndex = headerRowCount; rowIndex <= sourceSheet.getLastRowNum(); rowIndex++) {
+            Row sourceRow = sourceSheet.getRow(rowIndex);
+            if (sourceRow == null) continue;
+
+            Cell serialNoCell = sourceRow.getCell(columnIndices.get("Serial No"));
+            Cell testDataCell = sourceRow.getCell(columnIndices.get("Test Data"));
+            Cell dateTimeCell = sourceRow.getCell(columnIndices.get("Date and Time"));
+
+            // Copy the row only if "Serial No", "Test Data", and "Date and Time" are not empty
+            if ((serialNoCell != null && serialNoCell.getCellType() != CellType.BLANK) &&
+                (testDataCell != null && testDataCell.getCellType() != CellType.BLANK) &&
+                (dateTimeCell != null && dateTimeCell.getCellType() != CellType.BLANK)) {
+
+                // Create a new row in the report sheet
+                Row reportRow = reportSheet.createRow(++lastRowNumInReport);
+
+                // Copy cells from the source row to the report row
+                for (Cell sourceCell : sourceRow) {
+                    Cell reportCell = reportRow.createCell(sourceCell.getColumnIndex());
+
+                    switch (sourceCell.getCellType()) {
+                        case STRING:
+                            reportCell.setCellValue(sourceCell.getStringCellValue());
+                            break;
+                        case NUMERIC:
+                            if (DateUtil.isCellDateFormatted(sourceCell)) {
+                                reportCell.setCellValue(sourceCell.getDateCellValue());
+                            } else {
+                                reportCell.setCellValue(sourceCell.getNumericCellValue());
+                            }
+                            break;
+                        case BOOLEAN:
+                            reportCell.setCellValue(sourceCell.getBooleanCellValue());
+                            break;
+                        case FORMULA:
+                            reportCell.setCellFormula(sourceCell.getCellFormula());
+                            break;
+                        default:
+                            reportCell.setCellValue(sourceCell.toString());
+                            break;
+                    }
+                }
+            }
+        }
+    }
+
+    // Function to process the final merged report and remove empty rows and sheets
+    private static void processFinalMergedReport(Workbook finalWorkbook) {
+        // Iterate through each sheet in the workbook
+        for (int sheetIndex = finalWorkbook.getNumberOfSheets() - 1; sheetIndex >= 0; sheetIndex--) {
+            Sheet sheet = finalWorkbook.getSheetAt(sheetIndex);
+            boolean sheetHasValidData = false;
+
+            Iterator<Row> rowIterator = sheet.iterator();
+            while (rowIterator.hasNext()) {
+                Row row = rowIterator.next();
+                Cell serialNoCell = row.getCell(getColumnIndex(sheet, "Serial No"));
+                Cell testDataCell = row.getCell(getColumnIndex(sheet, "Test Data"));
+                Cell dateTimeCell = row.getCell(getColumnIndex(sheet, "Date and Time"));
+
+                // Check if the row has valid data
+                if (serialNoCell == null || testDataCell == null || dateTimeCell == null ||
+                    serialNoCell.getCellType() == CellType.BLANK ||
+                    testDataCell.getCellType() == CellType.BLANK ||
+                    dateTimeCell.getCellType() == CellType.BLANK) {
+                    // Remove the row if it doesn't contain valid data
+                    sheet.removeRow(row);
+                } else {
+                    sheetHasValidData = true;
+                }
+            }
+
+            // If the sheet has no valid data, remove the sheet
+            if (!sheetHasValidData) {
+                finalWorkbook.removeSheetAt(sheetIndex);
+            }
+        }
+    }
+
+    // Function to get column index by name dynamically
+    private static int getColumnIndex(Sheet sheet, String columnName) {
+        Row firstRow = sheet.getRow(0);
+        if (firstRow != null) {
+            for (Cell cell : firstRow) {
+                if (cell.getStringCellValue().trim().equalsIgnoreCase(columnName)) {
+                    return cell.getColumnIndex();
+                }
+            }
+        }
+        return -1; // Return -1 if the column is not found
+    }
+}
