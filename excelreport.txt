@@ -222,37 +222,40 @@ public class ExcelMerger {
     }
 
     // Function to process the final merged report and remove empty rows and sheets
-    private static void processFinalMergedReport(Workbook finalWorkbook) {
-        // Iterate through each sheet in the workbook
-        for (int sheetIndex = finalWorkbook.getNumberOfSheets() - 1; sheetIndex >= 0; sheetIndex--) {
-            Sheet sheet = finalWorkbook.getSheetAt(sheetIndex);
-            boolean sheetHasValidData = false;
+private static void processFinalMergedReport(Workbook finalWorkbook) {
+    // Iterate through each sheet in the workbook from the last one to the first
+    for (int sheetIndex = finalWorkbook.getNumberOfSheets() - 1; sheetIndex >= 0; sheetIndex--) {
+        Sheet sheet = finalWorkbook.getSheetAt(sheetIndex);
+        boolean sheetHasValidData = false;
+        
+        // Iterate over the rows in reverse order (to safely remove rows)
+        for (int rowIndex = sheet.getLastRowNum(); rowIndex >= 0; rowIndex--) {
+            Row row = sheet.getRow(rowIndex);
 
-            Iterator<Row> rowIterator = sheet.iterator();
-            while (rowIterator.hasNext()) {
-                Row row = rowIterator.next();
-                Cell serialNoCell = row.getCell(getColumnIndex(sheet, "Serial No"));
-                Cell testDataCell = row.getCell(getColumnIndex(sheet, "Test Data"));
-                Cell dateTimeCell = row.getCell(getColumnIndex(sheet, "Date and Time"));
+            if (row == null) continue;
 
-                // Check if the row has valid data
-                if (serialNoCell == null || testDataCell == null || dateTimeCell == null ||
-                    serialNoCell.getCellType() == CellType.BLANK ||
-                    testDataCell.getCellType() == CellType.BLANK ||
-                    dateTimeCell.getCellType() == CellType.BLANK) {
-                    // Remove the row if it doesn't contain valid data
-                    sheet.removeRow(row);
-                } else {
-                    sheetHasValidData = true;
-                }
-            }
+            Cell serialNoCell = row.getCell(getColumnIndex(sheet, "Serial No"));
+            Cell testDataCell = row.getCell(getColumnIndex(sheet, "Test Data"));
+            Cell dateTimeCell = row.getCell(getColumnIndex(sheet, "Date and Time"));
 
-            // If the sheet has no valid data, remove the sheet
-            if (!sheetHasValidData) {
-                finalWorkbook.removeSheetAt(sheetIndex);
+            // Check if the row has valid data
+            if (serialNoCell == null || testDataCell == null || dateTimeCell == null ||
+                serialNoCell.getCellType() == CellType.BLANK ||
+                testDataCell.getCellType() == CellType.BLANK ||
+                dateTimeCell.getCellType() == CellType.BLANK) {
+                // Delete the row by shifting remaining rows up
+                deleteRow(sheet, rowIndex);
+            } else {
+                sheetHasValidData = true;
             }
         }
+
+        // If the sheet has no valid data, remove the entire sheet
+        if (!sheetHasValidData) {
+            finalWorkbook.removeSheetAt(sheetIndex);
+        }
     }
+}
 
     // Function to get column index by name dynamically
     private static int getColumnIndex(Sheet sheet, String columnName) {
@@ -265,5 +268,65 @@ public class ExcelMerger {
             }
         }
         return -1; // Return -1 if the column is not found
+    }
+}
+
+private static void deleteRow(Sheet sheet, int rowIndex) {
+    int lastRowNum = sheet.getLastRowNum();
+
+    // Step 1: Store original merged regions before shifting
+    List<CellRangeAddress> mergedRegions = new ArrayList<>();
+    for (int i = 0; i < sheet.getNumMergedRegions(); i++) {
+        CellRangeAddress mergedRegion = sheet.getMergedRegion(i);
+        mergedRegions.add(mergedRegion); // Store the region
+    }
+
+    // Step 2: Remove all merged regions before shifting rows
+    while (sheet.getNumMergedRegions() > 0) {
+        sheet.removeMergedRegion(0);
+    }
+
+    // Step 3: Delete the row and shift the remaining rows upwards
+    if (rowIndex >= 0 && rowIndex < lastRowNum) {
+        // Shift rows up to fill the deleted row
+        sheet.shiftRows(rowIndex + 1, lastRowNum, -1);
+    } else if (rowIndex == lastRowNum) {
+        // If it's the last row, just remove it without shifting rows
+        Row rowToRemove = sheet.getRow(rowIndex);
+        if (rowToRemove != null) {
+            sheet.removeRow(rowToRemove);
+        }
+    }
+
+    // Step 4: Reapply merged regions with proper adjustments
+    for (CellRangeAddress mergedRegion : mergedRegions) {
+        int firstRow = mergedRegion.getFirstRow();
+        int lastRow = mergedRegion.getLastRow();
+
+        if (firstRow > rowIndex) {
+            // Adjust the region to account for the row shift
+            firstRow--;
+            lastRow--;
+        }
+
+        // Add the adjusted merged region back
+        CellRangeAddress newMergedRegion = new CellRangeAddress(
+                firstRow, lastRow,
+                mergedRegion.getFirstColumn(), mergedRegion.getLastColumn()
+        );
+
+        // Check for overlap before adding the merged region
+        boolean overlaps = false;
+        for (int i = 0; i < sheet.getNumMergedRegions(); i++) {
+            CellRangeAddress existingRegion = sheet.getMergedRegion(i);
+            if (newMergedRegion.intersects(existingRegion)) {
+                overlaps = true;
+                break;
+            }
+        }
+
+        if (!overlaps) {
+            sheet.addMergedRegion(newMergedRegion);
+        }
     }
 }
