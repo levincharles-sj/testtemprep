@@ -1,0 +1,22 @@
+public class ExcelReportExample {
+    public static void main(String[] args) {
+        ExcelReportGenerator generator = new ExcelReportGenerator();
+        String fileName = "multi_table_report.xlsx";
+        
+        // First table data
+        Map<String, Object[]> data1 = new HashMap<>();
+        data1.put("1", new Object[]{123, 50, 50, "Pass", "Pass", 25, 25, "Pass", "", "Pass"});
+        data1.put("2", new Object[]{1234, 100, 99, "Fail", "Pass", 50, 50, "Fail", "One entry is missing", "Fail"});
+        
+        // Generate initial report with first table
+        generator.generateInitialReport(fileName, data1, "File 1 Summary");
+        
+        // Second table data
+        Map<String, Object[]> data2 = new HashMap<>();
+        data2.put("1", new Object[]{456, 75, 75, "Pass", "Pass", 30, 30, "Pass", "", "Pass"});
+        data2.put("2", new Object[]{789, 80, 78, "Fail", "Pass", 40, 40, "Pass", "Two entries missing", "Fail"});
+        
+        // Append second table to the same report
+        generator.appendTableToExistingReport(fileName, data2, "File 2 Summary");
+    }
+}
