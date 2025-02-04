@@ -1,6 +1,6 @@
 import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.*;
 import org.apache.poi.ss.util.CellRangeAddress;
-import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -19,7 +19,6 @@ public class ExcelReportGenerator {
             setupColumnWidths(sheet);
             createTable(workbook, sheet, data, tableTitle, 0);
             
-            // Write the workbook to file
             try (FileOutputStream fileOut = new FileOutputStream(fileName)) {
                 workbook.write(fileOut);
             }
@@ -30,19 +29,14 @@ public class ExcelReportGenerator {
     
     public void appendTableToExistingReport(String fileName, Map<String, Object[]> data, String tableTitle) {
         try {
-            // Read existing file
             FileInputStream fis = new FileInputStream(new File(fileName));
             Workbook workbook = new XSSFWorkbook(fis);
             Sheet sheet = workbook.getSheetAt(0);
             
-            // Find the last row of existing data
             int lastRowNum = findLastRowOfData(sheet);
-            
-            // Add new table with 2 rows gap
             int startRow = lastRowNum + 3;
             createTable(workbook, sheet, data, tableTitle, startRow);
             
-            // Write back to file
             try (FileOutputStream fileOut = new FileOutputStream(fileName)) {
                 workbook.write(fileOut);
             }
@@ -88,12 +82,14 @@ public class ExcelReportGenerator {
     
     private void createTable(Workbook workbook, Sheet sheet, Map<String, Object[]> data, String tableTitle, int startRow) {
         // Create cell styles
-        CellStyle headerStyle = createHeaderStyle(workbook, LIGHT_GREEN);
-        CellStyle itemCountStyle = createHeaderStyle(workbook, LIGHT_BLUE);
-        CellStyle valueStyle = createHeaderStyle(workbook, LIGHT_GREEN);
-        CellStyle passStyle = createStatusStyle(workbook, PASS_GREEN);
-        CellStyle failStyle = createStatusStyle(workbook, FAIL_RED);
-        CellStyle normalStyle = createNormalStyle(workbook);
+        CellStyle headerStyle = createHeaderStyle(workbook, LIGHT_GREEN, true);
+        CellStyle itemCountStyle = createHeaderStyle(workbook, LIGHT_BLUE, true);
+        CellStyle valueStyle = createHeaderStyle(workbook, LIGHT_GREEN, true);
+        CellStyle passStyle = createStatusStyle(workbook, PASS_GREEN, false);
+        CellStyle failStyle = createStatusStyle(workbook, FAIL_RED, true);
+        CellStyle normalStyle = createNormalStyle(workbook, true);  // centered
+        CellStyle errorColumnStyle = createNormalStyle(workbook, false);  // left-aligned
+        CellStyle columnHeaderStyle = createColumnHeaderStyle(workbook);
         
         // Create title row
         Row titleRow = sheet.createRow(startRow);
@@ -135,11 +131,13 @@ public class ExcelReportGenerator {
         for (int i = 0; i < headers.length; i++) {
             Cell cell = columnHeaderRow.createCell(i);
             cell.setCellValue(headers[i]);
-            cell.setCellStyle(normalStyle);
+            cell.setCellStyle(columnHeaderStyle);
         }
         
         // Add data rows
         int rowNum = startRow + 3;
+        int lastDataRow = rowNum + data.size() - 1;
+        
         for (Map.Entry<String, Object[]> entry : data.entrySet()) {
             Row row = sheet.createRow(rowNum++);
             Object[] rowData = entry.getValue();
@@ -151,39 +149,106 @@ public class ExcelReportGenerator {
                     cell.setCellValue(((Number) rowData[i]).doubleValue());
                     cell.setCellStyle(normalStyle);
                 } else {
-                    cell.setCellValue(rowData[i].toString());
+                    String value = rowData[i].toString();
+                    cell.setCellValue(value);
                     
-                    // Apply conditional formatting for Pass/Fail cells
-                    if (rowData[i].toString().equals("Pass") || rowData[i].toString().equals("Fail")) {
-                        cell.setCellStyle(rowData[i].toString().equals("Pass") ? passStyle : failStyle);
+                    if (value.equals("Pass") || value.equals("Fail")) {
+                        cell.setCellStyle(value.equals("Pass") ? passStyle : failStyle);
+                    } else if (i == 8) { // Error Details column
+                        cell.setCellStyle(errorColumnStyle);
                     } else {
                         cell.setCellStyle(normalStyle);
                     }
                 }
             }
         }
+        
+        // Add table borders
+        addTableBorders(sheet, startRow, lastDataRow, 0, 9);
     }
     
-    private CellStyle createHeaderStyle(Workbook workbook, IndexedColors color) {
+    private void addTableBorders(Sheet sheet, int startRow, int endRow, int startCol, int endCol) {
+        for (int rowNum = startRow; rowNum <= endRow; rowNum++) {
+            Row row = sheet.getRow(rowNum);
+            if (row == null) continue;
+            
+            for (int colNum = startCol; colNum <= endCol; colNum++) {
+                Cell cell = row.getCell(colNum);
+                if (cell == null) {
+                    cell = row.createCell(colNum);
+                }
+                CellStyle style = cell.getCellStyle();
+                if (style == null) {
+                    style = sheet.getWorkbook().createCellStyle();
+                }
+                style.setBorderTop(BorderStyle.THIN);
+                style.setBorderRight(BorderStyle.THIN);
+                style.setBorderBottom(BorderStyle.THIN);
+                style.setBorderLeft(BorderStyle.THIN);
+                cell.setCellStyle(style);
+            }
+        }
+    }
+    
+    private CellStyle createHeaderStyle(Workbook workbook, IndexedColors color, boolean bold) {
         CellStyle style = workbook.createCellStyle();
         style.setFillForegroundColor(color.getIndex());
         style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
         style.setAlignment(HorizontalAlignment.CENTER);
         style.setVerticalAlignment(VerticalAlignment.CENTER);
+        style.setBorderTop(BorderStyle.THIN);
+        style.setBorderRight(BorderStyle.THIN);
+        style.setBorderBottom(BorderStyle.THIN);
+        style.setBorderLeft(BorderStyle.THIN);
+        
+        Font font = workbook.createFont();
+        font.setBold(bold);
+        style.setFont(font);
+        
         return style;
     }
     
-    private CellStyle createStatusStyle(Workbook workbook, IndexedColors color) {
+    private CellStyle createStatusStyle(Workbook workbook, IndexedColors color, boolean whiteFont) {
         CellStyle style = workbook.createCellStyle();
         style.setFillForegroundColor(color.getIndex());
         style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
         style.setAlignment(HorizontalAlignment.CENTER);
+        style.setBorderTop(BorderStyle.THIN);
+        style.setBorderRight(BorderStyle.THIN);
+        style.setBorderBottom(BorderStyle.THIN);
+        style.setBorderLeft(BorderStyle.THIN);
+        
+        Font font = workbook.createFont();
+        if (whiteFont) {
+            font.setColor(IndexedColors.WHITE.getIndex());
+        }
+        style.setFont(font);
+        
         return style;
     }
     
-    private CellStyle createNormalStyle(Workbook workbook) {
+    private CellStyle createNormalStyle(Workbook workbook, boolean centered) {
         CellStyle style = workbook.createCellStyle();
-        style.setAlignment(HorizontalAlignment.LEFT);
+        style.setAlignment(centered ? HorizontalAlignment.CENTER : HorizontalAlignment.LEFT);
+        style.setBorderTop(BorderStyle.THIN);
+        style.setBorderRight(BorderStyle.THIN);
+        style.setBorderBottom(BorderStyle.THIN);
+        style.setBorderLeft(BorderStyle.THIN);
+        return style;
+    }
+    
+    private CellStyle createColumnHeaderStyle(Workbook workbook) {
+        CellStyle style = workbook.createCellStyle();
+        style.setAlignment(HorizontalAlignment.CENTER);
+        style.setBorderTop(BorderStyle.THIN);
+        style.setBorderRight(BorderStyle.THIN);
+        style.setBorderBottom(BorderStyle.THIN);
+        style.setBorderLeft(BorderStyle.THIN);
+        
+        Font font = workbook.createFont();
+        font.setBold(true);
+        style.setFont(font);
+        
         return style;
     }
 }
