@@ -1,0 +1,189 @@
+// Visual Comparison Testing in Playwright
+// This example demonstrates how to use Playwright's visual comparison features
+
+const { test, expect } = require('@playwright/test');
+
+test('basic visual comparison test', async ({ page }) => {
+  // Navigate to a sample website
+  await page.goto('https://demo.playwright.dev/todomvc/');
+  
+  // Take a screenshot and compare with the baseline
+  await expect(page).toHaveScreenshot('todo-app.png');
+});
+
+// Example with custom comparison options
+test('visual comparison with custom options', async ({ page }) => {
+  await page.goto('https://demo.playwright.dev/todomvc/');
+  
+  // Add some todos
+  await page.getByPlaceholder('What needs to be done?').fill('Buy groceries');
+  await page.keyboard.press('Enter');
+  await page.getByPlaceholder('What needs to be done?').fill('Write tests');
+  await page.keyboard.press('Enter');
+  
+  // Compare with custom threshold (more tolerant to differences)
+  await expect(page).toHaveScreenshot('todo-app-with-items.png', {
+    threshold: 0.2, // Allow 20% pixels to be different
+    maxDiffPixelRatio: 0.3, // Maximum ratio of pixels that are different
+  });
+});
+
+// Example with masking dynamic content
+test('visual comparison with masked areas', async ({ page }) => {
+  await page.goto('https://demo.playwright.dev/todomvc/');
+  
+  // Add a todo
+  await page.getByPlaceholder('What needs to be done?').fill('This will be masked');
+  await page.keyboard.press('Enter');
+  
+  // Compare with masked areas
+  await expect(page).toHaveScreenshot('todo-app-masked.png', {
+    mask: [
+      // Mask the todo item text which might change
+      page.locator('.todo-list li label')
+    ]
+  });
+});
+
+// Example with full page screenshot
+test('full page screenshot', async ({ page }) => {
+  await page.goto('https://demo.playwright.dev/todomvc/');
+  
+  // Take a full page screenshot
+  await expect(page).toHaveScreenshot('todo-app-full.png', {
+    fullPage: true
+  });
+});
+
+// Example with specific element screenshot
+test('specific element screenshot', async ({ page }) => {
+  await page.goto('https://demo.playwright.dev/todomvc/');
+  
+  // Add a todo
+  await page.getByPlaceholder('What needs to be done?').fill('Test element screenshot');
+  await page.keyboard.press('Enter');
+  
+  // Compare only a specific element
+  const todoList = page.locator('.todo-list');
+  await expect(todoList).toHaveScreenshot('todo-list-only.png');
+});
+
+// Example demonstrating different environments handling
+test('comparison with device emulation', async ({ page }) => {
+  // Emulate a mobile device
+  await page.setViewportSize({ width: 375, height: 667 }); // iPhone SE dimensions
+  
+  await page.goto('https://demo.playwright.dev/todomvc/');
+  
+  // Compare with device-specific baseline
+  await expect(page).toHaveScreenshot('todo-app-mobile.png');
+});
+
+// Example with animations stabilization
+test('screenshot with animations disabled', async ({ page }) => {
+  await page.goto('https://demo.playwright.dev/todomvc/');
+  
+  // Add a todo that will be completed (which might trigger animations)
+  await page.getByPlaceholder('What needs to be done?').fill('Complete me');
+  await page.keyboard.press('Enter');
+  
+  // Complete the todo (might trigger a CSS transition)
+  await page.locator('.todo-list li:first-child .toggle').click();
+  
+  // Take screenshot with animations disabled
+  await expect(page).toHaveScreenshot('todo-app-completed.png', {
+    animations: 'disabled' // Disable animations for stable screenshots
+  });
+});
+
+// Example with style handling
+test('screenshot with styles configured', async ({ page }) => {
+  await page.goto('https://demo.playwright.dev/todomvc/');
+  
+  // Add a todo
+  await page.getByPlaceholder('What needs to be done?').fill('Style test');
+  await page.keyboard.press('Enter');
+  
+  // Force style for stable testing (changing focus indicators for example)
+  await page.addStyleTag({
+    content: `
+      *:focus { outline: none !important; }
+      /* Disable any animations */
+      *, *::before, *::after {
+        transition: none !important;
+        animation: none !important;
+      }
+    `
+  });
+  
+  await expect(page).toHaveScreenshot('todo-app-styled.png');
+});
+
+// Example with automatic retries
+test('screenshot with retry options', async ({ page }) => {
+  await page.goto('https://demo.playwright.dev/todomvc/');
+  
+  await page.getByPlaceholder('What needs to be done?').fill('Flaky content');
+  await page.keyboard.press('Enter');
+  
+  // Configure retry options for potentially flaky UI
+  await expect(page).toHaveScreenshot('todo-app-retry.png', {
+    timeout: 10000, // Longer timeout for retries
+    maxDiffPixels: 100 // Allow up to 100 pixels to be different
+  });
+});
+
+// Example with different color settings
+test('screenshot with different color settings', async ({ page }) => {
+  await page.goto('https://demo.playwright.dev/todomvc/');
+  
+  // Take screenshot with specific color precision
+  await expect(page).toHaveScreenshot('todo-app-colors.png', {
+    threshold: 0.1,
+    maxDiffPixelRatio: 0.1,
+  });
+});
+
+// Example with completely dynamic content masked
+test('screenshot with multiple masks', async ({ page }) => {
+  await page.goto('https://demo.playwright.dev/todomvc/');
+  
+  // Add a few todos
+  await page.getByPlaceholder('What needs to be done?').fill('Task 1');
+  await page.keyboard.press('Enter');
+  await page.getByPlaceholder('What needs to be done?').fill('Task 2');
+  await page.keyboard.press('Enter');
+  
+  // Compare with multiple masked areas
+  await expect(page).toHaveScreenshot('todo-app-multiple-masks.png', {
+    mask: [
+      // Mask all todo items
+      page.locator('.todo-list li label'),
+      // Mask the counter in the footer
+      page.locator('.todo-count')
+    ]
+  });
+});
+
+// Example with a custom locator
+test('screenshot with custom locator and comparison options', async ({ page }) => {
+  await page.goto('https://demo.playwright.dev/todomvc/');
+  
+  // Create complex UI state
+  await page.getByPlaceholder('What needs to be done?').fill('Task to complete');
+  await page.keyboard.press('Enter');
+  await page.getByPlaceholder('What needs to be done?').fill('Task to keep');
+  await page.keyboard.press('Enter');
+  
+  // Complete the first task
+  await page.locator('.todo-list li:first-child .toggle').click();
+  
+  // Select the footer with filters
+  const footer = page.locator('.footer');
+  
+  // Take screenshot of just the footer with options
+  await expect(footer).toHaveScreenshot('todo-app-footer.png', {
+    threshold: 0.1,
+    animations: 'disabled',
+  });
+});
