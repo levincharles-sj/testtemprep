@@ -1,0 +1,844 @@
+package com.automation.utils;
+
+import io.restassured.response.Response;
+import java.io.*;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.util.*;
+import java.util.regex.Pattern;
+
+/**
+ * Enhanced Pure Java Schema Generator with Malformed JSON Support
+ * Now handles: [\'Cash\', \'Credit Card\'] and other malformed JSON formats
+ */
+public class EnhancedPureJavaSchemaGenerator {
+    
+    private static final String SCHEMA_OUTPUT_PATH = "src/test/resources/schemas/";
+    
+    // Pattern matchers for various data types
+    private static final Pattern DATE_PATTERN = Pattern.compile("^\\d{4}-\\d{2}-\\d{2}$");
+    private static final Pattern DATETIME_PATTERN = Pattern.compile("^\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}:\\d{2}:\\d{2}(\\.\\d{3})?Z?$");
+    private static final Pattern EMAIL_PATTERN = Pattern.compile("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    private static final Pattern UUID_PATTERN = Pattern.compile("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
+    private static final Pattern DECIMAL_PATTERN = Pattern.compile("^\\d+\\.\\d+$");
+    private static final Pattern INTEGER_PATTERN = Pattern.compile("^-?\\d+$");
+    private static final Pattern VERSION_PATTERN = Pattern.compile("^\\d+[._]\\d+([._]\\d+)*$");
+    
+    /**
+     * Generate JSON schema from Rest-Assured response (with malformed JSON support)
+     */
+    public static String generateSchemaFromResponse(Response response, String schemaFileName, String apiTitle) {
+        try {
+            String jsonString = response.asString();
+            
+            // Check if the response contains malformed JSON
+            if (EnhancedJsonParser.needsPreprocessing(jsonString)) {
+                System.out.println("⚠️ Detected malformed JSON in API response for " + apiTitle);
+                jsonString = EnhancedJsonParser.fixApiResponse(jsonString);
+                System.out.println("✅ Applied JSON preprocessing for " + apiTitle);
+            }
+            
+            return generateSchemaFromJson(jsonString, schemaFileName, apiTitle);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to generate schema from response: " + e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * Generate JSON schema from JSON string (with malformed JSON support)
+     */
+    public static String generateSchemaFromJson(String jsonString, String schemaFileName, String apiTitle) {
+        try {
+            // Check and fix malformed JSON if needed
+            if (EnhancedJsonParser.needsPreprocessing(jsonString)) {
+                System.out.println("⚠️ Preprocessing malformed JSON for schema generation...");
+                EnhancedJsonParser.debugPreprocessing(jsonString);
+                jsonString = EnhancedJsonParser.preprocessMalformedJson(jsonString);
+            }
+            
+            // Parse JSON using enhanced parser
+            Object jsonObject = parseJson(jsonString.trim());
+            
+            // Generate schema
+            Map<String, Object> schema = generateSchema(jsonObject, apiTitle);
+            
+            // Convert to JSON string
+            String schemaJson = toJsonString(schema, 0);
+            
+            // Save to file
+            saveSchemaToFile(schemaJson, schemaFileName);
+            
+            return schemaJson;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to generate schema from JSON: " + e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * Generate JSON schema from multiple samples (with malformed JSON support)
+     */
+    public static String generateSchemaFromMultipleSamples(List<String> jsonSamples, String schemaFileName, String apiTitle) {
+        try {
+            if (jsonSamples.isEmpty()) {
+                throw new IllegalArgumentException("At least one JSON sample is required");
+            }
+            
+            // Parse all samples with malformed JSON handling
+            List<Object> parsedSamples = new ArrayList<>();
+            for (String json : jsonSamples) {
+                String processedJson = json;
+                
+                // Check and fix malformed JSON if needed
+                if (EnhancedJsonParser.needsPreprocessing(json)) {
+                    System.out.println("⚠️ Preprocessing malformed JSON in sample...");
+                    processedJson = EnhancedJsonParser.preprocessMalformedJson(json);
+                }
+                
+                parsedSamples.add(parseJson(processedJson.trim()));
+            }
+            
+            // Generate schema from multiple samples
+            Map<String, Object> schema = generateSchemaFromMultipleObjects(parsedSamples, apiTitle);
+            
+            // Convert to JSON string
+            String schemaJson = toJsonString(schema, 0);
+            
+            // Save to file
+            saveSchemaToFile(schemaJson, schemaFileName);
+            
+            return schemaJson;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to generate schema from multiple samples: " + e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * Enhanced JSON parser with fallback for malformed JSON
+     */
+    public static Object parseJson(String json) {
+        json = json.trim();
+        
+        try {
+            // Try standard parsing first
+            return parseJsonStandard(json);
+        } catch (Exception e) {
+            // If standard parsing fails, try enhanced parsing
+            System.out.println("⚠️ Standard parsing failed, trying enhanced parsing...");
+            return EnhancedJsonParser.parseJsonWithFallback(json);
+        }
+    }
+    
+    /**
+     * Standard JSON parsing (original implementation)
+     */
+    private static Object parseJsonStandard(String json) {
+        json = json.trim();
+        
+        if (json.startsWith("{")) {
+            return parseJsonObject(json);
+        } else if (json.startsWith("[")) {
+            return parseJsonArray(json);
+        } else {
+            return parseJsonValue(json);
+        }
+    }
+    
+    /**
+     * Parse JSON object
+     */
+    private static Map<String, Object> parseJsonObject(String json) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        
+        // Remove outer braces
+        json = json.substring(1, json.length() - 1).trim();
+        
+        if (json.isEmpty()) {
+            return result;
+        }
+        
+        // Split by commas, but respect nested structures
+        List<String> pairs = splitJsonPairs(json);
+        
+        for (String pair : pairs) {
+            int colonIndex = findUnquotedColon(pair);
+            if (colonIndex == -1) continue;
+            
+            String key = pair.substring(0, colonIndex).trim();
+            String value = pair.substring(colonIndex + 1).trim();
+            
+            // Remove quotes from key
+            key = unquoteString(key);
+            
+            // Parse value
+            Object parsedValue = parseJson(value);
+            result.put(key, parsedValue);
+        }
+        
+        return result;
+    }
+    
+    /**
+     * Parse JSON array with enhanced malformed JSON support
+     */
+    private static List<Object> parseJsonArray(String json) {
+        List<Object> result = new ArrayList<>();
+        
+        // Remove outer brackets
+        json = json.substring(1, json.length() - 1).trim();
+        
+        if (json.isEmpty()) {
+            return result;
+        }
+        
+        // Check for malformed array content
+        if (json.contains("\\'")) {
+            System.out.println("⚠️ Detected malformed array content: " + json);
+            json = fixMalformedArrayContent(json);
+            System.out.println("✅ Fixed array content: " + json);
+        }
+        
+        // Split by commas, but respect nested structures
+        List<String> elements = splitJsonElements(json);
+        
+        for (String element : elements) {
+            result.add(parseJson(element.trim()));
+        }
+        
+        return result;
+    }
+    
+    /**
+     * Fix malformed array content like \'Cash\', \'Credit Card\'
+     */
+    private static String fixMalformedArrayContent(String content) {
+        // Replace \'item\' with "item"
+        return content.replaceAll("\\\\'([^']*)\\\\'", "\"$1\"");
+    }
+    
+    /**
+     * Parse JSON value (string, number, boolean, null)
+     */
+    private static Object parseJsonValue(String json) {
+        json = json.trim();
+        
+        // Handle malformed single-quoted strings
+        if (json.startsWith("\\'") && json.endsWith("\\'")) {
+            // Convert \'value\' to regular string
+            return json.substring(2, json.length() - 2);
+        }
+        
+        if (json.equals("null")) {
+            return null;
+        } else if (json.equals("true")) {
+            return true;
+        } else if (json.equals("false")) {
+            return false;
+        } else if (json.startsWith("\"") && json.endsWith("\"")) {
+            return unquoteString(json);
+        } else if (json.contains(".")) {
+            try {
+                return Double.parseDouble(json);
+            } catch (NumberFormatException e) {
+                return json;
+            }
+        } else {
+            try {
+                return Long.parseLong(json);
+            } catch (NumberFormatException e) {
+                return json;
+            }
+        }
+    }
+    
+    // [Rest of the methods remain the same as in PureJavaSchemaGenerator]
+    // Including: splitJsonPairs, splitJsonElements, findUnquotedColon, unquoteString, etc.
+    
+    /**
+     * Split JSON pairs by comma, respecting nested structures
+     */
+    private static List<String> splitJsonPairs(String json) {
+        List<String> pairs = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        int braceLevel = 0;
+        int bracketLevel = 0;
+        boolean inString = false;
+        boolean escaped = false;
+        
+        for (char c : json.toCharArray()) {
+            if (escaped) {
+                escaped = false;
+                current.append(c);
+                continue;
+            }
+            
+            if (c == '\\') {
+                escaped = true;
+                current.append(c);
+                continue;
+            }
+            
+            if (c == '"') {
+                inString = !inString;
+            }
+            
+            if (!inString) {
+                if (c == '{') braceLevel++;
+                else if (c == '}') braceLevel--;
+                else if (c == '[') bracketLevel++;
+                else if (c == ']') bracketLevel--;
+                else if (c == ',' && braceLevel == 0 && bracketLevel == 0) {
+                    pairs.add(current.toString().trim());
+                    current.setLength(0);
+                    continue;
+                }
+            }
+            
+            current.append(c);
+        }
+        
+        if (current.length() > 0) {
+            pairs.add(current.toString().trim());
+        }
+        
+        return pairs;
+    }
+    
+    /**
+     * Split JSON array elements by comma, respecting nested structures
+     */
+    private static List<String> splitJsonElements(String json) {
+        return splitJsonPairs(json); // Same logic
+    }
+    
+    /**
+     * Find unquoted colon in a string
+     */
+    private static int findUnquotedColon(String str) {
+        boolean inString = false;
+        boolean escaped = false;
+        
+        for (int i = 0; i < str.length(); i++) {
+            char c = str.charAt(i);
+            
+            if (escaped) {
+                escaped = false;
+                continue;
+            }
+            
+            if (c == '\\') {
+                escaped = true;
+                continue;
+            }
+            
+            if (c == '"') {
+                inString = !inString;
+            }
+            
+            if (!inString && c == ':') {
+                return i;
+            }
+        }
+        
+        return -1;
+    }
+    
+    /**
+     * Remove quotes from string
+     */
+    private static String unquoteString(String str) {
+        if (str.startsWith("\"") && str.endsWith("\"")) {
+            return str.substring(1, str.length() - 1);
+        }
+        return str;
+    }
+    
+    // [Include all other methods from PureJavaSchemaGenerator here]
+    // generateSchema, generateSchemaFromMultipleObjects, analyzeObject, analyzeProperty, etc.
+    // I'll add the key ones:
+    
+    /**
+     * Generate schema from parsed JSON object
+     */
+    private static Map<String, Object> generateSchema(Object jsonObject, String title) {
+        Map<String, Object> schema = new LinkedHashMap<>();
+        schema.put("$schema", "http://json-schema.org/draft-07/schema#");
+        schema.put("type", "object");
+        schema.put("title", title);
+        
+        if (jsonObject instanceof Map) {
+            Map<String, Object> obj = (Map<String, Object>) jsonObject;
+            analyzeObject(obj, schema);
+        }
+        
+        return schema;
+    }
+    
+    /**
+     * Analyze object and add properties to schema
+     */
+    private static void analyzeObject(Map<String, Object> obj, Map<String, Object> schema) {
+        Map<String, Object> properties = new LinkedHashMap<>();
+        List<String> required = new ArrayList<>();
+        
+        for (Map.Entry<String, Object> entry : obj.entrySet()) {
+            String key = entry.getKey();
+            Object value = entry.getValue();
+            
+            Map<String, Object> propertySchema = analyzeProperty(Arrays.asList(value), key);
+            properties.put(key, propertySchema);
+            required.add(key);
+        }
+        
+        schema.put("properties", properties);
+        schema.put("required", required);
+        schema.put("additionalProperties", false);
+    }
+    
+    /**
+     * Analyze property values and create schema
+     */
+    private static Map<String, Object> analyzeProperty(List<Object> values, String propertyName) {
+        Map<String, Object> propertySchema = new LinkedHashMap<>();
+        
+        // Analyze all values to determine type and constraints
+        Set<String> types = new LinkedHashSet<>();
+        Set<String> patterns = new LinkedHashSet<>();
+        Set<String> enumValues = new LinkedHashSet<>();
+        boolean hasNullValue = false;
+        
+        for (Object value : values) {
+            if (value == null) {
+                hasNullValue = true;
+            } else if (value instanceof Boolean) {
+                types.add("boolean");
+            } else if (value instanceof Number) {
+                if (value instanceof Long || value instanceof Integer) {
+                    types.add("integer");
+                } else {
+                    types.add("number");
+                }
+            } else if (value instanceof String) {
+                types.add("string");
+                String strValue = (String) value;
+                enumValues.add(strValue);
+                
+                // Detect patterns
+                String pattern = detectPattern(strValue);
+                if (pattern != null) {
+                    patterns.add(pattern);
+                }
+            } else if (value instanceof List) {
+                types.add("array");
+            } else if (value instanceof Map) {
+                types.add("object");
+            }
+        }
+        
+        // Set type
+        if (types.size() == 1) {
+            String type = types.iterator().next();
+            propertySchema.put("type", type);
+            
+            // Configure specific type properties
+            switch (type) {
+                case "string":
+                    configureStringProperty(propertySchema, patterns, enumValues, values);
+                    break;
+                case "array":
+                    configureArrayProperty(propertySchema, values);
+                    break;
+                case "object":
+                    configureObjectProperty(propertySchema, values);
+                    break;
+                case "integer":
+                case "number":
+                    configureNumberProperty(propertySchema, values);
+                    break;
+            }
+        } else if (types.size() > 1) {
+            propertySchema.put("type", new ArrayList<>(types));
+        }
+        
+        // Add description
+        propertySchema.put("description", generateDescription(propertyName, types, patterns));
+        
+        return propertySchema;
+    }
+    
+    // [Continue with all other helper methods from PureJavaSchemaGenerator]
+    // configureStringProperty, configureArrayProperty, etc.
+    
+    /**
+     * Configure string property
+     */
+    private static void configureStringProperty(Map<String, Object> propertySchema, Set<String> patterns, Set<String> enumValues, List<Object> values) {
+        // Add pattern if consistent
+        if (patterns.size() == 1) {
+            propertySchema.put("pattern", patterns.iterator().next());
+        }
+        
+        // Add enum if limited values
+        if (enumValues.size() <= 4 && enumValues.size() > 1) {
+            propertySchema.put("enum", new ArrayList<>(enumValues));
+        }
+        
+        // Add min/max length
+        int minLength = Integer.MAX_VALUE;
+        int maxLength = 0;
+        
+        for (Object value : values) {
+            if (value instanceof String) {
+                String str = (String) value;
+                minLength = Math.min(minLength, str.length());
+                maxLength = Math.max(maxLength, str.length());
+            }
+        }
+        
+        if (minLength != Integer.MAX_VALUE && minLength > 0) {
+            propertySchema.put("minLength", minLength);
+        }
+        if (maxLength > 0 && maxLength != minLength) {
+            propertySchema.put("maxLength", maxLength);
+        }
+    }
+    
+    /**
+     * Configure array property
+     */
+    private static void configureArrayProperty(Map<String, Object> propertySchema, List<Object> values) {
+        propertySchema.put("type", "array");
+        
+        // Analyze array items
+        List<Object> allItems = new ArrayList<>();
+        int minItems = Integer.MAX_VALUE;
+        int maxItems = 0;
+        
+        for (Object value : values) {
+            if (value instanceof List) {
+                List<?> array = (List<?>) value;
+                minItems = Math.min(minItems, array.size());
+                maxItems = Math.max(maxItems, array.size());
+                allItems.addAll(array);
+            }
+        }
+        
+        if (!allItems.isEmpty()) {
+            Map<String, Object> itemsSchema = analyzeProperty(allItems, "item");
+            propertySchema.put("items", itemsSchema);
+        }
+        
+        // Set constraints
+        if (minItems != Integer.MAX_VALUE) {
+            propertySchema.put("minItems", minItems);
+        }
+        if (maxItems > 0 && maxItems != minItems) {
+            propertySchema.put("maxItems", maxItems);
+        }
+    }
+    
+    /**
+     * Configure object property
+     */
+    private static void configureObjectProperty(Map<String, Object> propertySchema, List<Object> values) {
+        propertySchema.put("type", "object");
+        
+        // Analyze nested object properties
+        Map<String, List<Object>> nestedProperties = new LinkedHashMap<>();
+        Set<String> allNestedFields = new LinkedHashSet<>();
+        
+        for (Object value : values) {
+            if (value instanceof Map) {
+                Map<String, Object> map = (Map<String, Object>) value;
+                for (Map.Entry<String, Object> entry : map.entrySet()) {
+                    String fieldName = entry.getKey();
+                    Object fieldValue = entry.getValue();
+                    
+                    allNestedFields.add(fieldName);
+                    nestedProperties.computeIfAbsent(fieldName, k -> new ArrayList<>()).add(fieldValue);
+                }
+            }
+        }
+        
+        Map<String, Object> nestedPropertiesSchema = new LinkedHashMap<>();
+        List<String> requiredFields = new ArrayList<>();
+        
+        for (String fieldName : allNestedFields) {
+            List<Object> fieldValues = nestedProperties.get(fieldName);
+            Map<String, Object> fieldSchema = analyzeProperty(fieldValues, fieldName);
+            nestedPropertiesSchema.put(fieldName, fieldSchema);
+            
+            // Mark as required if present in all samples
+            if (fieldValues.size() == values.size()) {
+                requiredFields.add(fieldName);
+            }
+        }
+        
+        propertySchema.put("properties", nestedPropertiesSchema);
+        if (!requiredFields.isEmpty()) {
+            propertySchema.put("required", requiredFields);
+        }
+        propertySchema.put("additionalProperties", false);
+    }
+    
+    /**
+     * Configure number property
+     */
+    private static void configureNumberProperty(Map<String, Object> propertySchema, List<Object> values) {
+        double minValue = Double.MAX_VALUE;
+        double maxValue = Double.MIN_VALUE;
+        
+        for (Object value : values) {
+            if (value instanceof Number) {
+                double numValue = ((Number) value).doubleValue();
+                minValue = Math.min(minValue, numValue);
+                maxValue = Math.max(maxValue, numValue);
+            }
+        }
+        
+        if (minValue != Double.MAX_VALUE && minValue != 0) {
+            propertySchema.put("minimum", minValue);
+        }
+        if (maxValue != Double.MIN_VALUE && maxValue != minValue) {
+            propertySchema.put("maximum", maxValue);
+        }
+    }
+    
+    /**
+     * Detect pattern for string values
+     */
+    private static String detectPattern(String value) {
+        if (DATE_PATTERN.matcher(value).matches()) {
+            return "^\\\\d{4}-\\\\d{2}-\\\\d{2}$";
+        } else if (DATETIME_PATTERN.matcher(value).matches()) {
+            return "^\\\\d{4}-\\\\d{2}-\\\\d{2}[ T]\\\\d{2}:\\\\d{2}:\\\\d{2}(\\\\.\\\\d{3})?Z?$";
+        } else if (EMAIL_PATTERN.matcher(value).matches()) {
+            return "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\\\.[a-zA-Z]{2,}$";
+        } else if (UUID_PATTERN.matcher(value).matches()) {
+            return "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$";
+        } else if (DECIMAL_PATTERN.matcher(value).matches()) {
+            return "^\\\\d+\\\\.\\\\d+$";
+        } else if (VERSION_PATTERN.matcher(value).matches()) {
+            return "^\\\\d+[._]\\\\d+([._]\\\\d+)*$";
+        }
+        return null;
+    }
+    
+    /**
+     * Generate description for a field
+     */
+    private static String generateDescription(String fieldName, Set<String> types, Set<String> patterns) {
+        StringBuilder description = new StringBuilder();
+        
+        // Add field name as description base
+        description.append(fieldName.replaceAll("([A-Z])", " $1").toLowerCase().trim());
+        
+        // Add type information
+        if (types.size() == 1) {
+            String type = types.iterator().next();
+            switch (type) {
+                case "string":
+                    if (patterns.contains("^\\\\d{4}-\\\\d{2}-\\\\d{2}$")) {
+                        description.append(" (date format)");
+                    } else if (patterns.contains("^\\\\d{4}-\\\\d{2}-\\\\d{2}[ T]\\\\d{2}:\\\\d{2}:\\\\d{2}(\\\\.\\\\d{3})?Z?$")) {
+                        description.append(" (datetime format)");
+                    } else if (patterns.contains("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\\\.[a-zA-Z]{2,}$")) {
+                        description.append(" (email format)");
+                    }
+                    break;
+                case "array":
+                    description.append(" (array of items)");
+                    break;
+                case "boolean":
+                    description.append(" (true/false)");
+                    break;
+            }
+        }
+        
+        return description.toString();
+    }
+    
+    /**
+     * Generate schema from multiple objects
+     */
+    private static Map<String, Object> generateSchemaFromMultipleObjects(List<Object> objects, String title) {
+        Map<String, Object> schema = new LinkedHashMap<>();
+        schema.put("$schema", "http://json-schema.org/draft-07/schema#");
+        schema.put("type", "object");
+        schema.put("title", title);
+        
+        // Collect all properties from all objects
+        Map<String, List<Object>> propertyValues = new LinkedHashMap<>();
+        Set<String> allProperties = new LinkedHashSet<>();
+        
+        for (Object obj : objects) {
+            if (obj instanceof Map) {
+                Map<String, Object> map = (Map<String, Object>) obj;
+                for (Map.Entry<String, Object> entry : map.entrySet()) {
+                    String key = entry.getKey();
+                    Object value = entry.getValue();
+                    
+                    allProperties.add(key);
+                    propertyValues.computeIfAbsent(key, k -> new ArrayList<>()).add(value);
+                }
+            }
+        }
+        
+        // Generate properties and required fields
+        Map<String, Object> properties = new LinkedHashMap<>();
+        List<String> required = new ArrayList<>();
+        
+        for (String propertyName : allProperties) {
+            List<Object> values = propertyValues.get(propertyName);
+            Map<String, Object> propertySchema = analyzeProperty(values, propertyName);
+            properties.put(propertyName, propertySchema);
+            
+            // Mark as required if present in all samples
+            if (values.size() == objects.size()) {
+                required.add(propertyName);
+            }
+        }
+        
+        schema.put("properties", properties);
+        if (!required.isEmpty()) {
+            schema.put("required", required);
+        }
+        schema.put("additionalProperties", false);
+        
+        return schema;
+    }
+    
+    /**
+     * Convert object to JSON string
+     */
+    private static String toJsonString(Object obj, int indentLevel) {
+        if (obj == null) {
+            return "null";
+        } else if (obj instanceof Boolean) {
+            return obj.toString();
+        } else if (obj instanceof Number) {
+            return obj.toString();
+        } else if (obj instanceof String) {
+            return "\"" + escapeString((String) obj) + "\"";
+        } else if (obj instanceof List) {
+            return listToJsonString((List<?>) obj, indentLevel);
+        } else if (obj instanceof Map) {
+            return mapToJsonString((Map<?, ?>) obj, indentLevel);
+        } else {
+            return "\"" + escapeString(obj.toString()) + "\"";
+        }
+    }
+    
+    /**
+     * Convert list to JSON string
+     */
+    private static String listToJsonString(List<?> list, int indentLevel) {
+        if (list.isEmpty()) {
+            return "[]";
+        }
+        
+        StringBuilder sb = new StringBuilder();
+        sb.append("[\n");
+        
+        for (int i = 0; i < list.size(); i++) {
+            sb.append(getIndent(indentLevel + 1));
+            sb.append(toJsonString(list.get(i), indentLevel + 1));
+            if (i < list.size() - 1) {
+                sb.append(",");
+            }
+            sb.append("\n");
+        }
+        
+        sb.append(getIndent(indentLevel));
+        sb.append("]");
+        
+        return sb.toString();
+    }
+    
+    /**
+     * Convert map to JSON string
+     */
+    private static String mapToJsonString(Map<?, ?> map, int indentLevel) {
+        if (map.isEmpty()) {
+            return "{}";
+        }
+        
+        StringBuilder sb = new StringBuilder();
+        sb.append("{\n");
+        
+        Object[] keys = map.keySet().toArray();
+        for (int i = 0; i < keys.length; i++) {
+            Object key = keys[i];
+            Object value = map.get(key);
+            
+            sb.append(getIndent(indentLevel + 1));
+            sb.append("\"").append(escapeString(key.toString())).append("\": ");
+            sb.append(toJsonString(value, indentLevel + 1));
+            
+            if (i < keys.length - 1) {
+                sb.append(",");
+            }
+            sb.append("\n");
+        }
+        
+        sb.append(getIndent(indentLevel));
+        sb.append("}");
+        
+        return sb.toString();
+    }
+    
+    /**
+     * Get indentation string
+     */
+    private static String getIndent(int level) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < level; i++) {
+            sb.append("  ");
+        }
+        return sb.toString();
+    }
+    
+    /**
+     * Escape string for JSON
+     */
+    private static String escapeString(String str) {
+        return str.replace("\\", "\\\\")
+                 .replace("\"", "\\\"")
+                 .replace("\n", "\\n")
+                 .replace("\r", "\\r")
+                 .replace("\t", "\\t");
+    }
+    
+    /**
+     * Save schema to file
+     */
+    private static void saveSchemaToFile(String schema, String fileName) {
+        try {
+            // Create directory if it doesn't exist
+            File directory = new File(SCHEMA_OUTPUT_PATH);
+            if (!directory.exists()) {
+                directory.mkdirs();
+            }
+            
+            // Write schema to file
+            String filePath = SCHEMA_OUTPUT_PATH + fileName;
+            try (FileWriter writer = new FileWriter(filePath)) {
+                writer.write(schema);
+            }
+            
+            System.out.println("Schema saved to: " + filePath);
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to save schema to file: " + e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * Load JSON from file
+     */
+    public static String loadJsonFromFile(String filePath) {
+        try {
+            return new String(Files.readAllBytes(Paths.get(filePath)));
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to load JSON from file: " + e.getMessage(), e);
+        }
+    }
+}
