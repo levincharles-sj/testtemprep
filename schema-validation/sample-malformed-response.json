@@ -1,0 +1,76 @@
+# Sample Response Files with Your Malformed JSON Format
+
+## File: src/test/resources/response/product-api-response-08072025.json
+
+```json
+{
+  "Name:": "product-Name some other details",
+  "version": "0_1", 
+  "ValidFrom": "2024-01-15 T10:30:45.123Z",
+  "Data": [
+    {
+      "ProductID": "1234",
+      "ProductType": "Base level product",
+      "RetailPrice": "2.000", 
+      "RefundAllowed": "True",
+      "MaxQuatity": "99999",
+      "AdjustmentPrice": "",
+      "VolumeStock": "False",
+      "VATCode": "D",
+      "CoreItem": true,
+      "MOP": [\'Cash\', \'Credit Card\']
+    }
+  ]
+}
+```
+
+## File: src/test/resources/response/product-premium-api-response-08072025.json
+
+```json
+{
+  "Name:": "Premium Product Details",
+  "version": "1_2",
+  "ValidFrom": "2024-07-08 T14:30:22.456Z", 
+  "Data": [
+    {
+      "ProductID": "5678",
+      "ProductType": "Premium level product",
+      "RetailPrice": "15.500",
+      "RefundAllowed": "False", 
+      "MaxQuatity": "100",
+      "AdjustmentPrice": "2.50",
+      "VolumeStock": "True",
+      "VATCode": "S",
+      "CoreItem": false,
+      "MOP": [\'Cash\', \'Credit Card\', \'Bank Transfer\', \'PayPal\']
+    },
+    {
+      "ProductID": "9999", 
+      "ProductType": "Limited edition",
+      "RetailPrice": "99.999",
+      "RefundAllowed": "True",
+      "MaxQuatity": "1",
+      "AdjustmentPrice": "",
+      "VolumeStock": "False",
+      "VATCode": "L", 
+      "CoreItem": true,
+      "MOP": [\'Credit Card\', \'Bank Transfer\']
+    }
+  ]
+}
+```
+
+## File: src/test/resources/response/product-notfound-api-response-08072025.json
+
+```json
+{
+  "Name:": "product-Name some other details",
+  "version": "0_1",
+  "ValidFrom": "2024-01-15 T10:30:45.123Z",
+  "Data": [],
+  "SupportedMethods": [\'GET\', \'POST\', \'PUT\'],
+  "ErrorCodes": [\'404\', \'500\', \'503\']
+}
+```
+
+**Note**: The `[\'Cash\', \'Credit Card\']` format in these files is malformed JSON but will be automatically handled by the Enhanced Framework.

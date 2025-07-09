@@ -1,0 +1,119 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object", 
+  "title": "Product API Response Schema (Multi-Sample Generated 08072025)",
+  "properties": {
+    "Name:": {
+      "type": "string",
+      "description": "name (string)",
+      "minLength": 20,
+      "maxLength": 33
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\\\d+[._]\\\\d+([._]\\\\d+)*$",
+      "description": "version (version format)"
+    },
+    "ValidFrom": {
+      "type": "string",
+      "pattern": "^\\\\d{4}-\\\\d{2}-\\\\d{2}[ T]\\\\d{2}:\\\\d{2}:\\\\d{2}(\\\\.\\\\d{3})?Z?$",
+      "description": "valid from (datetime format)"
+    },
+    "Data": {
+      "type": "array",
+      "description": "data (array of items)",
+      "items": {
+        "type": "object",
+        "properties": {
+          "ProductID": {
+            "type": "string",
+            "description": "product id (string)"
+          },
+          "ProductType": {
+            "type": "string", 
+            "description": "product type (string)"
+          },
+          "RetailPrice": {
+            "type": "string",
+            "pattern": "^\\\\d+\\\\.\\\\d+$",
+            "description": "retail price (decimal format)"
+          },
+          "RefundAllowed": {
+            "type": "string",
+            "enum": ["True", "False"],
+            "description": "refund allowed (string)"
+          },
+          "MaxQuatity": {
+            "type": "string",
+            "description": "max quatity (string)"
+          },
+          "AdjustmentPrice": {
+            "type": "string",
+            "description": "adjustment price (string)"
+          },
+          "VolumeStock": {
+            "type": "string", 
+            "enum": ["False", "True"],
+            "description": "volume stock (string)"
+          },
+          "VATCode": {
+            "type": "string",
+            "enum": ["D", "S", "L"],
+            "description": "vat code (string)"
+          },
+          "CoreItem": {
+            "type": "boolean",
+            "description": "core item (true/false)"
+          },
+          "MOP": {
+            "type": "array",
+            "description": "mop (array of items)",
+            "items": {
+              "type": "string",
+              "enum": ["Cash", "Credit Card", "Bank Transfer", "PayPal"]
+            },
+            "minItems": 2,
+            "maxItems": 4
+          }
+        },
+        "required": [
+          "ProductID",
+          "ProductType",
+          "RetailPrice", 
+          "RefundAllowed",
+          "MaxQuatity",
+          "AdjustmentPrice",
+          "VolumeStock",
+          "VATCode",
+          "CoreItem",
+          "MOP"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 0,
+      "maxItems": 2
+    },
+    "SupportedMethods": {
+      "type": "array",
+      "description": "supported methods (array of items)",
+      "items": {
+        "type": "string",
+        "enum": ["GET", "POST", "PUT"]
+      },
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "ErrorCodes": {
+      "type": "array", 
+      "description": "error codes (array of items)",
+      "items": {
+        "type": "string",
+        "enum": ["404", "500", "503"]
+      },
+      "minItems": 3,
+      "maxItems": 3
+    }
+  },
+  "required": ["Name:", "version", "ValidFrom", "Data"],
+  "additionalProperties": false
+}
