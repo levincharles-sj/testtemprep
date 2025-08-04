@@ -224,29 +224,3 @@ public class CognitoSRPAuth {
     public void close() {
         cognitoClient.close();
     }
-    
-    // Usage example
-    public static void main(String[] args) {
-        try {
-            CognitoSRPAuth auth = new CognitoSRPAuth(
-                "us-east-1",           // region
-                "your-client-id",      // clientId
-                "your-user-pool-id"    // userPoolId
-            );
-            
-            AuthenticationResultType result = auth.authenticate(
-                "your-username",       // username
-                "your-password"        // password
-            );
-            
-            System.out.println("Access Token: " + result.accessToken());
-            System.out.println("ID Token: " + result.idToken());
-            System.out.println("Refresh Token: " + result.refreshToken());
-            
-            auth.close();
-            
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
-}
