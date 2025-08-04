@@ -1,3 +1,4 @@
+import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.cognitoidentityprovider.CognitoIdentityProviderClient;
 import software.amazon.awssdk.services.cognitoidentityprovider.model.*;
@@ -55,21 +56,12 @@ public class CognitoSRPAuth {
     }
     
     public CognitoSRPAuth(String region, String clientId, String userPoolId, String clientSecret) {
-        // Check if credentials are set in system properties
-        String accessKey = System.getProperty("aws.accessKeyId");
-        String secretKey = System.getProperty("aws.secretAccessKey");
-        
-        if (accessKey == null || secretKey == null) {
-            System.out.println("Warning: AWS credentials not found in system properties. " +
-                "Set aws.accessKeyId and aws.secretAccessKey system properties.");
-        }
-        
-        // Use default client builder - it will automatically pick up credentials from:
-        // 1. System properties (aws.accessKeyId, aws.secretAccessKey)
-        // 2. Environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
-        // 3. Other standard AWS credential locations
+        // For SRP authentication, use anonymous credentials (no AWS credentials needed)
+        // This is the equivalent of AnonymousAWSCredentials in SDK v1
+        AnonymousCredentialsProvider creds = AnonymousCredentialsProvider.create();
         this.cognitoClient = CognitoIdentityProviderClient.builder()
                 .region(Region.of(region))
+                .credentialsProvider(creds)
                 .build();
         this.clientId = clientId;
         this.userPoolId = userPoolId;
@@ -224,3 +216,38 @@ public class CognitoSRPAuth {
     public void close() {
         cognitoClient.close();
     }
+    
+    // Usage example
+    public static void main(String[] args) {
+        try {
+            // For app client WITHOUT client secret
+            CognitoSRPAuth auth = new CognitoSRPAuth(
+                "us-east-1",           // region
+                "your-client-id",      // clientId
+                "your-user-pool-id"    // userPoolId
+            );
+            
+            // For app client WITH client secret
+            // CognitoSRPAuth auth = new CognitoSRPAuth(
+            //     "us-east-1",           // region
+            //     "your-client-id",      // clientId
+            //     "your-user-pool-id",   // userPoolId
+            //     "your-client-secret"   // clientSecret
+            // );
+            
+            AuthenticationResultType result = auth.authenticate(
+                "your-username",       // username (try email if username doesn't work)
+                "your-password"        // password
+            );
+            
+            System.out.println("Access Token: " + result.accessToken());
+            System.out.println("ID Token: " + result.idToken());
+            System.out.println("Refresh Token: " + result.refreshToken());
+            
+            auth.close();
+            
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+}
