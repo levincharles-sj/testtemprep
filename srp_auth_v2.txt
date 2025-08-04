@@ -1,4 +1,3 @@
-import software.amazon.awssdk.auth.credentials.SystemPropertyCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.cognitoidentityprovider.CognitoIdentityProviderClient;
 import software.amazon.awssdk.services.cognitoidentityprovider.model.*;
@@ -49,14 +48,32 @@ public class CognitoSRPAuth {
     private final CognitoIdentityProviderClient cognitoClient;
     private final String clientId;
     private final String userPoolId;
+    private final String clientSecret; // Add this field
     
     public CognitoSRPAuth(String region, String clientId, String userPoolId) {
+        this(region, clientId, userPoolId, null);
+    }
+    
+    public CognitoSRPAuth(String region, String clientId, String userPoolId, String clientSecret) {
+        // Check if credentials are set in system properties
+        String accessKey = System.getProperty("aws.accessKeyId");
+        String secretKey = System.getProperty("aws.secretAccessKey");
+        
+        if (accessKey == null || secretKey == null) {
+            System.out.println("Warning: AWS credentials not found in system properties. " +
+                "Set aws.accessKeyId and aws.secretAccessKey system properties.");
+        }
+        
+        // Use default client builder - it will automatically pick up credentials from:
+        // 1. System properties (aws.accessKeyId, aws.secretAccessKey)
+        // 2. Environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
+        // 3. Other standard AWS credential locations
         this.cognitoClient = CognitoIdentityProviderClient.builder()
                 .region(Region.of(region))
-                .credentialsProvider(SystemPropertyCredentialsProvider.create())
                 .build();
         this.clientId = clientId;
         this.userPoolId = userPoolId;
+        this.clientSecret = clientSecret;
     }
     
     public AuthenticationResultType authenticate(String username, String password) 
@@ -66,14 +83,21 @@ public class CognitoSRPAuth {
         BigInteger a = generateRandomBigInteger();
         BigInteger A = G.modPow(a, N);
         
+        // Step 2: Prepare auth parameters
+        Map<String, String> authParams = new HashMap<>();
+        authParams.put("USERNAME", username);
+        authParams.put("SRP_A", A.toString(16));
+        
+        // Add SECRET_HASH if client secret is provided
+        if (clientSecret != null) {
+            authParams.put("SECRET_HASH", calculateSecretHash(username));
+        }
+        
         // Step 2: Initiate auth with SRP_A
         InitiateAuthRequest initiateAuthRequest = InitiateAuthRequest.builder()
                 .authFlow(AuthFlowType.USER_SRP_AUTH)
                 .clientId(clientId)
-                .authParameters(Map.of(
-                    "USERNAME", username,
-                    "SRP_A", A.toString(16)
-                ))
+                .authParameters(authParams)
                 .build();
         
         InitiateAuthResponse initiateAuthResponse = cognitoClient.initiateAuth(initiateAuthRequest);
@@ -98,23 +122,42 @@ public class CognitoSRPAuth {
         String passwordVerifier = calculatePasswordVerifier(
             userPoolId, userId, password, a, A, B, salt, secretBlock, timestamp);
         
+        // Step 5: Prepare challenge responses
+        Map<String, String> challengeResponses = new HashMap<>();
+        challengeResponses.put("PASSWORD_CLAIM_SIGNATURE", passwordVerifier);
+        challengeResponses.put("PASSWORD_CLAIM_SECRET_BLOCK", secretBlock);
+        challengeResponses.put("TIMESTAMP", timestamp);
+        challengeResponses.put("USERNAME", userId);
+        
+        // Add SECRET_HASH if client secret is provided
+        if (clientSecret != null) {
+            challengeResponses.put("SECRET_HASH", calculateSecretHash(userId));
+        }
+        
         // Step 5: Respond to auth challenge
         RespondToAuthChallengeRequest respondRequest = RespondToAuthChallengeRequest.builder()
                 .challengeName(ChallengeNameType.PASSWORD_VERIFIER)
                 .clientId(clientId)
                 .session(initiateAuthResponse.session())
-                .challengeResponses(Map.of(
-                    "PASSWORD_CLAIM_SIGNATURE", passwordVerifier,
-                    "PASSWORD_CLAIM_SECRET_BLOCK", secretBlock,
-                    "TIMESTAMP", timestamp,
-                    "USERNAME", userId
-                ))
+                .challengeResponses(challengeResponses)
                 .build();
         
         RespondToAuthChallengeResponse respondResponse = 
             cognitoClient.respondToAuthChallenge(respondRequest);
         
         return respondResponse.authenticationResult();
+    }
+    
+    private String calculateSecretHash(String username) throws Exception {
+        if (clientSecret == null) {
+            return null;
+        }
+        
+        String message = username + clientId;
+        Mac mac = Mac.getInstance(HMAC_SHA256_ALGORITHM);
+        mac.init(new SecretKeySpec(clientSecret.getBytes(StandardCharsets.UTF_8), HMAC_SHA256_ALGORITHM));
+        byte[] hash = mac.doFinal(message.getBytes(StandardCharsets.UTF_8));
+        return Base64.getEncoder().encodeToString(hash);
     }
     
     private String calculatePasswordVerifier(String userPoolId, String userId, String password,
