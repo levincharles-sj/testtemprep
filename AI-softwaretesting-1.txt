@@ -1,0 +1,66 @@
+Absolutely, Levin! Here's a 3-slide breakdown introducing the role of **AI in the Software Testing Lifecycle**, tailored for new recruits. These slides cover how AI enhances **manual and automated testing**, with examples across **test planning, automation, execution, and reporting**.
+
+---
+
+## 🤖 **Slide 1: AI in Software Testing – A Game Changer**
+
+**Title:** _“Reimagining Testing with Artificial Intelligence”_
+
+- AI is transforming the **entire testing lifecycle**—from planning to reporting.
+- It brings **speed, accuracy, and adaptability** to both manual and automated testing.
+- AI helps testers:
+  - Predict defects before they occur.
+  - Generate smarter test cases.
+  - Automate repetitive tasks.
+  - Analyze vast test data for insights.
+
+**Key Benefits:**
+- 🔍 **Smarter test coverage**
+- ⚡ **Faster execution**
+- 📉 **Reduced flakiness**
+- 📊 **Insightful reporting**
+
+> _“AI doesn’t replace testers—it supercharges them.”_
+
+---
+
+## 🧪 **Slide 2: AI Across Testing Phases**
+
+**Title:** _“Where AI Fits in the Testing Lifecycle”_
+
+| **Phase**              | **AI Contribution**                                                                 | **Example Tools**                          |
+|------------------------|-------------------------------------------------------------------------------------|--------------------------------------------|
+| **Test Planning**      | Analyze requirements, predict risk areas, prioritize test cases                     | Testim, Functionize                        |
+| **Test Design**        | Auto-generate test cases based on user behavior and historical data                 | Applitools Autonomous Testing, TestCraft   |
+| **Test Automation**    | Self-healing scripts, intelligent locators, adaptive test flows                     | Mabl, Testim, Katalon Studio               |
+| **Test Execution**     | Parallel runs, dynamic environment selection, anomaly detection                     | LambdaTest AI, Sauce Labs Smart Testing    |
+| **Test Reporting**     | AI-driven dashboards, root cause analysis, predictive analytics                     | ReportPortal, PractiTest, TestSigma        |
+
+> _“AI adapts to change—so your tests don’t break when your app does.”_
+
+---
+
+## 📈 **Slide 3: Manual vs Automation – AI’s Role in Both**
+
+**Title:** _“AI Enhances Every Tester’s Workflow”_
+
+### 🧍 Manual Testing:
+- 🧠 AI helps identify **high-risk areas** for exploratory testing.
+- 📝 Suggests **missing test cases** based on historical bugs.
+- 🔍 Assists in **visual testing** and UI anomaly detection.
+
+### 🤖 Automation Testing:
+- 🔄 Maintains scripts with **self-healing locators**.
+- 🧪 Generates **data-driven tests** automatically.
+- 📊 Provides **real-time feedback** and failure clustering.
+
+**Real-World Impact:**
+- 🚀 Faster release cycles
+- 🧩 Fewer missed bugs
+- 🧠 Smarter decision-making
+
+> _“Whether you click or code—AI has your back.”_
+
+---
+
+Would you like me to help turn these into visual slides or add speaker notes for your presentation? I can also help you build a quick demo or interactive quiz to reinforce these concepts.
