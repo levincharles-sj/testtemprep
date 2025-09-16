@@ -1,0 +1,42 @@
+import io.appium.java_client.AppiumDriver;
+import io.appium.java_client.android.AndroidDriver;
+import io.appium.java_client.android.nativekey.AndroidKey;
+import io.appium.java_client.android.nativekey.KeyEvent;
+import org.openqa.selenium.JavascriptExecutor;
+import org.openqa.selenium.WebElement;
+import java.util.HashMap;
+import java.util.Map;
+
+// Assuming 'driver' is your AndroidDriver instance and 'focusableElement' is an element you can click
+WebElement focusableElement = driver.findElement(By.id("some_focusable_element"));
+
+// Step 1: Click a focusable element to bring up the keyboard and set focus
+focusableElement.click();
+
+// You may need a small wait to allow the keyboard to fully appear
+try {
+    Thread.sleep(1000); 
+} catch (InterruptedException e) {
+    e.printStackTrace();
+}
+
+// Step 2: Navigate using key events to your target TextView
+// This is the most complex part and will require careful mapping of your UI.
+// Use 'driver.pressKey(new KeyEvent(AndroidKey.<KEY_NAME>))' as needed.
+((AndroidDriver) driver).pressKey(new KeyEvent(AndroidKey.DPAD_DOWN));
+((AndroidDriver) driver).pressKey(new KeyEvent(AndroidKey.DPAD_RIGHT));
+// ... continue until your TextView is focused
+
+// Step 3: Execute the ADB shell command
+JavascriptExecutor js = (JavascriptExecutor) driver;
+
+// The text you want to enter
+String textToEnter = "YourDesiredValue";
+
+// Create the arguments for the 'mobile: shell' command
+Map<String, Object> params = new HashMap<>();
+params.put("command", "input text");
+params.put("args", new String[]{textToEnter});
+
+// Run the command to directly inject the text
+js.executeScript("mobile: shell", params);
