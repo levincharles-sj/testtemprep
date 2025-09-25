@@ -133,7 +133,15 @@ Once you’ve confirmed the formula works in `C2`, drag it down to fill all rows
 
 Would you like a version using named ranges or a dynamic table setup for easier maintenance?
 
+Got it, Levin — you want to **add a condition** to the formula so that it only proceeds if the **Package Code in Sheet2 is `"001"`**. If not, it should return `"NA"`.
 
+Assuming **Sheet2 has a column for Package Code** (let’s say it’s in **Column D**), here’s the updated version of the formula:
+
+---
+
+### ✅ Updated Formula (for Excel 365 or older versions with Ctrl+Shift+Enter)
+
+```excel
 =IFERROR(
   IF(
     INDEX(Sheet2!D$2:D$100, MATCH(1, (Sheet2!A$2:A$100=A2)*(Sheet2!B$2:B$100=B2), 0))<>"001",
@@ -163,3 +171,22 @@ Would you like a version using named ranges or a dynamic table setup for easier 
     )
   ),
 "NA")
+```
+
+---
+
+### 🧩 What’s New
+
+- This part:
+  ```excel
+  INDEX(Sheet2!D$2:D$100, MATCH(...))<>"001"
+  ```
+  checks if the Package Code is not `"001"` — and if so, returns `"NA"` immediately.
+
+---
+
+### 🧠 Tip
+
+If you’re using Excel Tables, this logic becomes much cleaner and dynamic. Want me to convert this into a table-based version for easier maintenance and auto-expansion?
+
+Or if you’d like to add more package codes later (e.g., `"001"` or `"002"`), I can show you how to make it flexible.
