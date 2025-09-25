@@ -133,3 +133,33 @@ Once you’ve confirmed the formula works in `C2`, drag it down to fill all rows
 
 Would you like a version using named ranges or a dynamic table setup for easier maintenance?
 
+
+=IFERROR(
+  IF(
+    INDEX(Sheet2!D$2:D$100, MATCH(1, (Sheet2!A$2:A$100=A2)*(Sheet2!B$2:B$100=B2), 0))<>"001",
+    "NA",
+    IF(
+      ISBLANK(
+        INDEX(Sheet2!C$2:C$100, MATCH(1, (Sheet2!A$2:A$100=A2)*(Sheet2!B$2:B$100=B2), 0))
+      ),
+      "NA",
+      IF(
+        INDEX(Sheet3!E$2:E$100,
+          MATCH(1,
+            (Sheet3!A$2:A$100=INDEX(Sheet2!C$2:C$100, MATCH(1, (Sheet2!A$2:A$100=A2)*(Sheet2!B$2:B$100=B2), 0))) *
+            (Sheet3!B$2:B$100<=B2) *
+            (Sheet3!C$2:C$100>=B2),
+          0)
+        )="Yes",
+        INDEX(Sheet3!D$2:D$100,
+          MATCH(1,
+            (Sheet3!A$2:A$100=INDEX(Sheet2!C$2:C$100, MATCH(1, (Sheet2!A$2:A$100=A2)*(Sheet2!B$2:B$100=B2), 0))) *
+            (Sheet3!B$2:B$100<=B2) *
+            (Sheet3!C$2:C$100>=B2),
+          0)
+        ),
+        "NA"
+      )
+    )
+  ),
+"NA")
