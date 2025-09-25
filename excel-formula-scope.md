@@ -60,3 +60,76 @@ In **Sheet1**, for each row:
 - If you're using an older version, I can rewrite it using `INDEX` and `MATCH` instead — just let me know.
 
 Would you like me to help turn this into a reusable named formula or apply it across a full table with dynamic ranges?
+
+
+Yes, you can absolutely place the formula in **Column C of Sheet1** to calculate the price for each Product ID row — but the error you're seeing is likely due to one of these common issues:
+
+---
+
+### ⚠️ Common Causes of “There's a problem with this formula” Error
+
+1. **Array formula syntax in older Excel versions**  
+   If you're not using **Excel 365 or Excel 2021**, functions like `LET` and `XMATCH` may not be supported. In that case, you’ll need a version using `INDEX` and `MATCH`.
+
+2. **Missing implicit multiplication operator (`*`) in array logic**  
+   Excel formulas using multiple conditions like `(A:A=...) * (B:B=...)` must be entered as **array formulas** in older Excel.
+
+3. **Full column references (`A:A`) in array formulas**  
+   These can cause performance issues or errors. It's better to use limited ranges like `A2:A100`.
+
+4. **Formula not entered with Ctrl+Shift+Enter**  
+   In older Excel, array formulas must be confirmed with **Ctrl+Shift+Enter**, not just Enter.
+
+---
+
+### ✅ Compatible Formula (for Column C in Sheet1)
+
+Here’s a version using `INDEX` and `MATCH` that works in **all Excel versions**, assuming your data is in rows 2 to 100:
+
+```excel
+=IFERROR(
+  IF(
+    ISBLANK(
+      INDEX(Sheet2!C$2:C$100, MATCH(1, (Sheet2!A$2:A$100=A2)*(Sheet2!B$2:B$100=B2), 0))
+    ),
+    "NA",
+    IF(
+      INDEX(Sheet3!E$2:E$100,
+        MATCH(1,
+          (Sheet3!A$2:A$100=INDEX(Sheet2!C$2:C$100, MATCH(1, (Sheet2!A$2:A$100=A2)*(Sheet2!B$2:B$100=B2), 0))) *
+          (Sheet3!B$2:B$100<=B2) *
+          (Sheet3!C$2:C$100>=B2),
+        0)
+      )="Yes",
+      INDEX(Sheet3!D$2:D$100,
+        MATCH(1,
+          (Sheet3!A$2:A$100=INDEX(Sheet2!C$2:C$100, MATCH(1, (Sheet2!A$2:A$100=A2)*(Sheet2!B$2:B$100=B2), 0))) *
+          (Sheet3!B$2:B$100<=B2) *
+          (Sheet3!C$2:C$100>=B2),
+        0)
+      ),
+      "NA"
+    )
+  ),
+"NA")
+```
+
+> ⚠️ **Important**: This is an **array formula**. In Excel 2016 or earlier, press **Ctrl+Shift+Enter** after pasting it into cell `C2`. In Excel 365/2021+, just press Enter.
+
+---
+
+### 🧩 What It Does
+
+- Matches `Product ID` and `Max Weight` in Sheet2 to get the `Price ID`.
+- Uses `Price ID` and `Weight` to find the correct row in Sheet3.
+- Checks if `'In scope' = "Yes"` in Sheet3.
+- Returns the price or `"NA"`.
+
+---
+
+### 🪄 Apply to All Rows
+
+Once you’ve confirmed the formula works in `C2`, drag it down to fill all rows in Column C where `Product ID` exists.
+
+Would you like a version using named ranges or a dynamic table setup for easier maintenance?
+
