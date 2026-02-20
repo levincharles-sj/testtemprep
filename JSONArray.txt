@@ -5,8 +5,7 @@ import java.util.*;
 public class JsonValidator {
 
     private final JSONObject root;
-    private final List<String> failures = new ArrayList<>();
-    private final List<String> missingOptional = new ArrayList<>();
+    private final List<String> storedFailures = new ArrayList<>();
 
     public JsonValidator(String responseBody) {
         this.root = new JSONObject(responseBody);
@@ -16,144 +15,110 @@ public class JsonValidator {
         return root;
     }
 
-    // --- Navigation helpers ---
+    // ---------------------------------------------------------------
+    // NAVIGATION — fail immediately if missing
+    // ---------------------------------------------------------------
 
-    public JSONObject getObject(JSONObject parent, String key) {
-        return parent.has(key) ? parent.getJSONObject(key) : null;
+    public JSONObject requiredObject(JSONObject parent, String key) {
+        if (!parent.has(key) || parent.isNull(key)) {
+            throw new AssertionError("FATAL: Required object [" + key + "] is missing.");
+        }
+        return parent.getJSONObject(key);
     }
 
-    public JSONArray getArray(JSONObject parent, String key) {
-        return parent.has(key) ? parent.getJSONArray(key) : null;
+    public JSONArray requiredArray(JSONObject parent, String key) {
+        if (!parent.has(key) || parent.isNull(key)) {
+            throw new AssertionError("FATAL: Required array [" + key + "] is missing.");
+        }
+        return parent.getJSONArray(key);
     }
 
-    // --- Validation methods ---
+    public String requiredValue(JSONObject parent, String key) {
+        if (!parent.has(key) || parent.isNull(key)) {
+            throw new AssertionError("FATAL: Required field [" + key + "] is missing.");
+        }
+        return parent.get(key).toString();
+    }
 
-    /** Required field: fails if missing or wrong */
-    public JsonValidator required(JSONObject obj, String field, String path, String expected) {
+    // ---------------------------------------------------------------
+    // SOFT VALIDATE — store everything, report at end
+    // ---------------------------------------------------------------
+
+    public JsonValidator soft(JSONObject obj, String field, String expected) {
         if (!obj.has(field) || obj.isNull(field)) {
-            failures.add(String.format("MISSING REQUIRED: [%s.%s]", path, field));
+            storedFailures.add("MISSING: [" + field + "]");
         } else if (expected != null && !expected.equals(obj.get(field).toString())) {
-            failures.add(String.format("MISMATCH: [%s.%s] expected '%s', got '%s'",
-                    path, field, expected, obj.get(field)));
+            storedFailures.add(String.format("MISMATCH: [%s] expected '%s', got '%s'",
+                    field, expected, obj.get(field)));
         }
         return this;
     }
 
-    /** Required field: just check it exists, return the value */
-    public String requiredGet(JSONObject obj, String field, String path) {
-        if (!obj.has(field) || obj.isNull(field)) {
-            failures.add(String.format("MISSING REQUIRED: [%s.%s]", path, field));
-            return null;
-        }
-        return obj.get(field).toString();
-    }
-
-    /** Optional field: reports missing but doesn't fail */
-    public String optional(JSONObject obj, String field, String path) {
-        if (!obj.has(field) || obj.isNull(field)) {
-            missingOptional.add(String.format("[%s.%s] not present", path, field));
-            return null;
-        }
-        return obj.get(field).toString();
-    }
-
-    /** Validate all required fields in one shot */
-    public JsonValidator requiredFields(JSONObject obj, String path, String... fields) {
+    public JsonValidator softExists(JSONObject obj, String... fields) {
         for (String field : fields) {
-            required(obj, field, path, null);
+            soft(obj, field, null);
         }
         return this;
     }
 
-    /** Check all optional fields in one shot */
-    public JsonValidator optionalFields(JSONObject obj, String path, String... fields) {
-        for (String field : fields) {
-            optional(obj, field, path);
+    // ---------------------------------------------------------------
+    // HARD VALIDATE — store if missing, fail immediately on mismatch
+    // ---------------------------------------------------------------
+
+    public JsonValidator hard(JSONObject obj, String field, String expected) {
+        if (!obj.has(field) || obj.isNull(field)) {
+            storedFailures.add("MISSING: [" + field + "]");
+        } else if (expected != null && !expected.equals(obj.get(field).toString())) {
+            throw new AssertionError(String.format(
+                    "HARD FAIL: [%s] expected '%s', got '%s'",
+                    field, expected, obj.get(field)));
         }
         return this;
     }
 
-    // --- Results ---
+    // ---------------------------------------------------------------
+    // REPORT
+    // ---------------------------------------------------------------
 
-    public List<String> getFailures() { return failures; }
-    public List<String> getMissingOptional() { return missingOptional; }
-
-    public void assertAllPassed() {
-        if (!missingOptional.isEmpty()) {
-            System.out.println("--- OPTIONAL FIELDS NOT PRESENT ---");
-            missingOptional.forEach(m -> System.out.println("  ○ " + m));
-        }
-        if (!failures.isEmpty()) {
-            StringBuilder sb = new StringBuilder("\n=== VALIDATION FAILURES ===\n");
-            failures.forEach(f -> sb.append("  ✗ ").append(f).append("\n"));
+    public void report() {
+        if (!storedFailures.isEmpty()) {
+            StringBuilder sb = new StringBuilder("\n=== STORED FAILURES ===\n");
+            storedFailures.forEach(f -> sb.append("  ✗ ").append(f).append("\n"));
+            sb.append("Total: ").append(storedFailures.size()).append(" failure(s)\n");
             throw new AssertionError(sb.toString());
         }
         System.out.println("✓ All validations passed");
     }
 }
-
 @Test
 void validateProductResponse() {
-    String responseBody = getApiResponse(); // your RestAssured call
-
-    JsonValidator v = new JsonValidator(responseBody);
+    JsonValidator v = new JsonValidator(getApiResponse());
     JSONObject root = v.getRoot();
 
-    // --- Stage 1: Root level ---
-    v.required(root, "message", "root", "details retrieved successfully");
+    v.hard(root, "message", "details retrieved successfully");
 
-    // --- Stage 2: Data object ---
-    JSONObject data = v.getObject(root, "data");
-    assertNotNull(data, "data object missing entirely");
+    JSONObject data = v.requiredObject(root, "data");
+    v.soft(data, "version", "1");
+    v.softExists(data, "createdAt", "reference");
 
-    v.requiredFields(data, "data", "version", "createdAt");
-    v.optionalFields(data, "data", "reference");
-
-    // --- Stage 3: Items array ---
-    JSONArray items = v.getArray(data, "items");
-    assertNotNull(items, "items array missing entirely");
+    JSONArray items = v.requiredArray(data, "items");
 
     for (int i = 0; i < items.length(); i++) {
         JSONObject item = items.getJSONObject(i);
-        String itemPath = "items[" + i + "]";
 
-        // --- Stage 4: Each item ---
-        v.requiredFields(item, itemPath, "quantity");
-        v.optionalFields(item, itemPath, "sku", "productCode");
+        v.softExists(item, "quantity", "sku", "productCode");
 
-        // --- Stage 5: Details inside each item ---
-        JSONObject details = v.getObject(item, "details");
-        if (details != null) {
-            v.requiredFields(details, itemPath + ".details", "weight", "quantity");
-            v.optionalFields(details, itemPath + ".details",
-                    "dimensions", "color", "material", "voltage");
-        }
+        JSONObject details = v.requiredObject(item, "details");
+        v.hard(details, "weight", "0g");
+        v.softExists(details, "quantity", "dimensions", "color");
 
-        // --- Stage 6: Additional items inside each item ---
-        JSONArray additionalItems = v.getArray(item, "additionalItems");
-        if (additionalItems != null) {
-            for (int j = 0; j < additionalItems.length(); j++) {
-                JSONObject extra = additionalItems.getJSONObject(j);
-                String extraPath = itemPath + ".additionalItems[" + j + "]";
-
-                v.requiredFields(extra, extraPath, "type", "quantity", "description");
-                v.optionalFields(extra, extraPath, "sku", "batchNumber");
-            }
+        JSONArray extras = v.requiredArray(item, "additionalItems");
+        for (int j = 0; j < extras.length(); j++) {
+            JSONObject extra = extras.getJSONObject(j);
+            v.softExists(extra, "type", "quantity");
+            v.hard(extra, "description", "sample description");
         }
     }
 
-    // --- Final verdict ---
-    v.assertAllPassed();
+    v.report();
 }
-```
-
-**3. Sample output when things go wrong**
-```
---- OPTIONAL FIELDS NOT PRESENT ---
-  ○ [items[0].details.dimensions] not present
-  ○ [items[0].details.color] not present
-  ○ [items[1].additionalItems[0].batchNumber] not present
-
-=== VALIDATION FAILURES ===
-  ✗ MISMATCH: [root.message] expected 'details retrieved successfully', got 'partial success'
-  ✗ MISSING REQUIRED: [items[1].details.weight]
