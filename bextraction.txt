@@ -1,0 +1,244 @@
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+/**
+ * Parses a Royal Mail label / barcode payload into the seven values the app renders
+ * on the label-details screen, so they can be compared directly against the UI.
+ *
+ * Postage service type is intentionally not derived.
+ *
+ * The returned map always contains all seven keys. When the source data omits a field,
+ * the app's observed default is returned:
+ *   postBy               -> "N/A"
+ *   amountPaid           -> "£0.00"
+ *   everything else      -> ""
+ */
+public final class BarcodeParser {
+
+    public static final String REFERENCE_NUMBER = "referenceNumber";
+    public static final String POST_BY          = "postBy";
+    public static final String AMOUNT_PAID      = "amountPaid";
+    public static final String WEIGHT_UP_TO     = "labelValidWeightUpTo";
+    public static final String RECIPIENT_NAME   = "recipientName";
+    public static final String DESTINATION      = "destination";
+    public static final String TOWN_CITY        = "townCity";
+    public static final String POSTCODE         = "postcode";
+
+    private static final String NOT_APPLICABLE = "N/A";
+    private static final String ZERO_AMOUNT    = "£0.00";
+    private static final String EMPTY          = "";
+
+    /** Address lines are separated by a literal "\&" or, in fixed-width records, by 2+ spaces. */
+    private static final Pattern ADDRESS_SEPARATOR = Pattern.compile("\\\\&|\\s{2,}");
+
+    /** Trailing UK postcode. Tolerant of test postcodes such as XX40 2PP. */
+    private static final Pattern TRAILING_POSTCODE =
+            Pattern.compile("([A-Z]{1,2}\\d[A-Z\\d]?)\\s*(\\d[A-Z]{2})$", Pattern.CASE_INSENSITIVE);
+
+    /** 13-character Royal Mail tracking reference, e.g. DA051154519GB. */
+    private static final Pattern TRACKING_REFERENCE = Pattern.compile("\\b([A-Z]{2}\\d{9}GB)\\b");
+
+    /** In "JGB <6-char service code><11-char item id>...", the item id starts at index 10. */
+    private static final int ITEM_ID_START  = 10;
+    private static final int ITEM_ID_LENGTH = 11;
+
+    private BarcodeParser() {
+    }
+
+    /**
+     * @param barcode either a pipe-delimited label record ("Label=7|QRCode=...|1DBarcode=...")
+     *                or a bare 2D payload ("JGB 82141A1100038EC6A...")
+     * @return the seven UI field values; never null, never containing null values
+     */
+    public static Map<String, String> parse(String barcode) {
+        Map<String, String> fields = readFields(barcode);
+
+        String reference = referenceNumber(fields.get("1DBarcode"), fields.get("QRCode"));
+        Address recipient = Address.parse(fields.get("SendersDetails"));
+
+        Map<String, String> ui = new LinkedHashMap<>();
+        ui.put(REFERENCE_NUMBER, reference);
+        ui.put(POST_BY,          postBy(fields.get("PostBy")));
+        ui.put(AMOUNT_PAID,      amountPaid(fields.get("Price")));
+        ui.put(WEIGHT_UP_TO,     weight(fields.get("Weight"), fields.get("WeightUnit")));
+        ui.put(RECIPIENT_NAME,   recipient.name);
+        ui.put(DESTINATION,      recipient.destination);
+        ui.put(TOWN_CITY,        recipient.town);
+        ui.put(POSTCODE,         recipient.postcode);
+        return ui;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Input handling                                                      */
+    /* ------------------------------------------------------------------ */
+
+    /**
+     * Splits a pipe-delimited record into key/value pairs. A bare 2D payload is treated
+     * as a lone QRCode value so the same downstream logic applies.
+     */
+    private static Map<String, String> readFields(String barcode) {
+        Map<String, String> fields = new LinkedHashMap<>();
+        if (barcode == null || barcode.isBlank()) {
+            return fields;
+        }
+
+        String data = barcode.trim();
+        if (!data.contains("|") || !data.contains("=")) {
+            fields.put("QRCode", data);
+            return fields;
+        }
+
+        for (String segment : data.split("\\|", -1)) {
+            int equals = segment.indexOf('=');
+            if (equals <= 0) {
+                continue;
+            }
+            String key = segment.substring(0, equals).trim();
+            String value = segment.substring(equals + 1).trim();
+            // First non-empty occurrence wins, so a later blank duplicate cannot clobber a value.
+            fields.merge(key, value, (existing, ignored) -> existing.isEmpty() ? ignored : existing);
+        }
+        return fields;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Field derivation                                                    */
+    /* ------------------------------------------------------------------ */
+
+    /**
+     * The formats differ in where the reference lives, so resolve in order of reliability:
+     * the 1D barcode, then a tracking reference embedded in the 2D payload, then the
+     * fixed-offset item id used by the JGB 82xxx payloads.
+     */
+    private static String referenceNumber(String oneDBarcode, String qrCode) {
+        if (isPresent(oneDBarcode)) {
+            return oneDBarcode.trim();
+        }
+        if (!isPresent(qrCode)) {
+            return EMPTY;
+        }
+
+        Matcher tracking = TRACKING_REFERENCE.matcher(qrCode);
+        if (tracking.find()) {
+            return tracking.group(1);
+        }
+
+        String normalised = qrCode.replaceFirst("^JGB\\s*", "JGB ");
+        if (normalised.length() >= ITEM_ID_START + ITEM_ID_LENGTH) {
+            return normalised.substring(ITEM_ID_START, ITEM_ID_START + ITEM_ID_LENGTH).trim();
+        }
+        return EMPTY;
+    }
+
+    /** "18.11.2022" -> "18/11/2022". Absent -> "N/A". */
+    private static String postBy(String raw) {
+        if (!isPresent(raw)) {
+            return NOT_APPLICABLE;
+        }
+        String value = raw.trim();
+        if (value.equalsIgnoreCase(NOT_APPLICABLE)) {
+            return NOT_APPLICABLE;
+        }
+        return value.replace('.', '/').replace('-', '/');
+    }
+
+    /** "2.70" -> "£2.70". Absent -> "£0.00". */
+    private static String amountPaid(String raw) {
+        if (!isPresent(raw)) {
+            return ZERO_AMOUNT;
+        }
+        String value = raw.replace("£", "").replace("\"", "").trim();
+        try {
+            return "£" + new BigDecimal(value).setScale(2, RoundingMode.HALF_UP).toPlainString();
+        } catch (NumberFormatException e) {
+            return "£" + value;
+        }
+    }
+
+    /** "700g" -> "700g". ("250", "g") -> "250g". Absent -> "". */
+    private static String weight(String raw, String unit) {
+        if (!isPresent(raw)) {
+            return EMPTY;
+        }
+        String value = raw.replace("\"", "").trim();
+        if (value.matches("\\d+(\\.\\d+)?") && isPresent(unit)) {
+            return value + unit.trim();
+        }
+        return value;
+    }
+
+    private static boolean isPresent(String value) {
+        return value != null && !value.isBlank();
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Recipient block                                                     */
+    /* ------------------------------------------------------------------ */
+
+    /**
+     * The app's "Recipient details" panel is populated from SendersDetails, not RetDetails.
+     * Layout varies between records, so both of these are handled:
+     *   name \& line1 \& "Town POSTCODE"           (postcode on the town line)
+     *   name \& line1 \& line2 \& Town \& POSTCODE (postcode on its own line)
+     */
+    private static final class Address {
+
+        private static final Address ABSENT = new Address(EMPTY, EMPTY, EMPTY, EMPTY);
+
+        final String name;
+        final String destination;
+        final String town;
+        final String postcode;
+
+        private Address(String name, String destination, String town, String postcode) {
+            this.name = name;
+            this.destination = destination;
+            this.town = town;
+            this.postcode = postcode;
+        }
+
+        static Address parse(String block) {
+            if (!isPresent(block)) {
+                return ABSENT;
+            }
+
+            List<String> lines = new ArrayList<>();
+            for (String line : ADDRESS_SEPARATOR.split(block)) {
+                String trimmed = line.trim();
+                if (!trimmed.isEmpty()) {
+                    lines.add(trimmed);
+                }
+            }
+            if (lines.isEmpty()) {
+                return ABSENT;
+            }
+
+            String name = lines.remove(0);
+            String town = EMPTY;
+            String postcode = EMPTY;
+
+            if (!lines.isEmpty()) {
+                int last = lines.size() - 1;
+                Matcher matcher = TRAILING_POSTCODE.matcher(lines.get(last));
+                if (matcher.find()) {
+                    postcode = (matcher.group(1) + " " + matcher.group(2)).toUpperCase();
+                    String remainder = lines.get(last).substring(0, matcher.start()).trim();
+                    lines.remove(last);
+                    if (!remainder.isEmpty()) {
+                        town = remainder;
+                    } else if (!lines.isEmpty()) {
+                        town = lines.remove(lines.size() - 1);
+                    }
+                }
+            }
+
+            return new Address(name, String.join(", ", lines), town, postcode);
+        }
+    }
+}
