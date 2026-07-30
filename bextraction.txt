@@ -8,16 +8,16 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Parses a Royal Mail label / barcode payload into the seven values the app renders
- * on the label-details screen, so they can be compared directly against the UI.
+ * Parses a Royal Mail label / barcode payload into the seven values the app renders on the
+ * label-details screen, so they can be compared directly against the UI.
  *
  * Postage service type is intentionally not derived.
  *
- * The returned map always contains all seven keys. When the source data omits a field,
- * the app's observed default is returned:
- *   postBy               -> "N/A"
- *   amountPaid           -> "£0.00"
- *   everything else      -> ""
+ * The returned map always contains all seven keys. When the source data omits a field, the
+ * app's observed default is returned:
+ *   postBy          -> "N/A"
+ *   amountPaid      -> "£0.00"
+ *   everything else -> ""
  */
 public final class BarcodeParser {
 
@@ -37,9 +37,13 @@ public final class BarcodeParser {
     /** Address lines are separated by a literal "\&" or, in fixed-width records, by 2+ spaces. */
     private static final Pattern ADDRESS_SEPARATOR = Pattern.compile("\\\\&|\\s{2,}");
 
-    /** Trailing UK postcode. Tolerant of test postcodes such as XX40 2PP. */
+    /** Trailing UK postcode on an address line. Tolerant of test postcodes such as XX40 2PP. */
     private static final Pattern TRAILING_POSTCODE =
             Pattern.compile("([A-Z]{1,2}\\d[A-Z\\d]?)\\s*(\\d[A-Z]{2})$", Pattern.CASE_INSENSITIVE);
+
+    /** Postcode anywhere, optionally unspaced, as encoded inside the 2D payload. */
+    private static final Pattern EMBEDDED_POSTCODE =
+            Pattern.compile("([A-Z]{1,2}\\d[A-Z\\d]?)\\s?(\\d[A-Z]{2})");
 
     /** 13-character Royal Mail tracking reference, e.g. DA051154519GB. */
     private static final Pattern TRACKING_REFERENCE = Pattern.compile("\\b([A-Z]{2}\\d{9}GB)\\b");
@@ -47,6 +51,12 @@ public final class BarcodeParser {
     /** In "JGB <6-char service code><11-char item id>...", the item id starts at index 10. */
     private static final int ITEM_ID_START  = 10;
     private static final int ITEM_ID_LENGTH = 11;
+
+    /**
+     * Length of the fixed-width payload header. Postcode scanning starts beyond it so that
+     * alphanumeric runs in the header cannot be mistaken for a postcode.
+     */
+    private static final int PAYLOAD_HEADER_LENGTH = 43;
 
     private BarcodeParser() {
     }
@@ -59,18 +69,18 @@ public final class BarcodeParser {
     public static Map<String, String> parse(String barcode) {
         Map<String, String> fields = readFields(barcode);
 
-        String reference = referenceNumber(fields.get("1DBarcode"), fields.get("QRCode"));
+        String qrCode = fields.get("QRCode");
         Address recipient = Address.parse(fields.get("SendersDetails"));
 
         Map<String, String> ui = new LinkedHashMap<>();
-        ui.put(REFERENCE_NUMBER, reference);
+        ui.put(REFERENCE_NUMBER, referenceNumber(fields.get("1DBarcode"), qrCode));
         ui.put(POST_BY,          postBy(fields.get("PostBy")));
         ui.put(AMOUNT_PAID,      amountPaid(fields.get("Price")));
         ui.put(WEIGHT_UP_TO,     weight(fields.get("Weight"), fields.get("WeightUnit")));
         ui.put(RECIPIENT_NAME,   recipient.name);
         ui.put(DESTINATION,      recipient.destination);
         ui.put(TOWN_CITY,        recipient.town);
-        ui.put(POSTCODE,         recipient.postcode);
+        ui.put(POSTCODE,         postcode(qrCode, recipient.postcode));
         return ui;
     }
 
@@ -79,8 +89,8 @@ public final class BarcodeParser {
     /* ------------------------------------------------------------------ */
 
     /**
-     * Splits a pipe-delimited record into key/value pairs. A bare 2D payload is treated
-     * as a lone QRCode value so the same downstream logic applies.
+     * Splits a pipe-delimited record into key/value pairs. A bare 2D payload is treated as a
+     * lone QRCode value so the same downstream logic applies.
      */
     private static Map<String, String> readFields(String barcode) {
         Map<String, String> fields = new LinkedHashMap<>();
@@ -136,6 +146,28 @@ public final class BarcodeParser {
         return EMPTY;
     }
 
+    /**
+     * The destination postcode is encoded in the 2D payload, which is the data the app actually
+     * scans, so it takes precedence over the postcode written in the address text. The two
+     * disagree in at least one test record and the barcode is the authoritative source.
+     *
+     * @param addressPostcode fallback for records supplied without a payload
+     */
+    private static String postcode(String qrCode, String addressPostcode) {
+        if (isPresent(qrCode)) {
+            Matcher tracking = TRACKING_REFERENCE.matcher(qrCode);
+            int from = tracking.find()
+                    ? tracking.end()
+                    : Math.min(PAYLOAD_HEADER_LENGTH, qrCode.length());
+
+            Matcher embedded = EMBEDDED_POSTCODE.matcher(qrCode);
+            if (embedded.find(from)) {
+                return (embedded.group(1) + " " + embedded.group(2)).toUpperCase();
+            }
+        }
+        return addressPostcode;
+    }
+
     /** "18.11.2022" -> "18/11/2022". Absent -> "N/A". */
     private static String postBy(String raw) {
         if (!isPresent(raw)) {
@@ -183,9 +215,12 @@ public final class BarcodeParser {
 
     /**
      * The app's "Recipient details" panel is populated from SendersDetails, not RetDetails.
-     * Layout varies between records, so both of these are handled:
-     *   name \& line1 \& "Town POSTCODE"           (postcode on the town line)
-     *   name \& line1 \& line2 \& Town \& POSTCODE (postcode on its own line)
+     *
+     * Line roles, confirmed against the app:
+     *   line 0        recipient name
+     *   line 1        destination - the app renders this line only, any further address lines
+     *                 are not shown on this screen
+     *   last line(s)  town, with the postcode either on the town line or on its own line
      */
     private static final class Address {
 
@@ -238,7 +273,8 @@ public final class BarcodeParser {
                 }
             }
 
-            return new Address(name, String.join(", ", lines), town, postcode);
+            String destination = lines.isEmpty() ? EMPTY : lines.get(0);
+            return new Address(name, destination, town, postcode);
         }
     }
 }
